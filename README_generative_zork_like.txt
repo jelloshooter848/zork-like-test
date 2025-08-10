@@ -3,6 +3,7 @@ Generative Zork-like Prototype
 ==============================
 
 Run interactively:
+    source venv/bin/activate
     python generative_zork_like.py
 
 Core ideas:
