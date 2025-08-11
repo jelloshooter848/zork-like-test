@@ -11,7 +11,7 @@ quest progression, and an immersive fantasy world.
 # Setup virtual environment (recommended)
 python3 -m venv venv
 source venv/bin/activate
-pip install anthropic
+pip install anthropic colorama
 
 # Create API key file
 mkdir -p secrets
@@ -23,6 +23,14 @@ python generative_zork_like.py
 
 ## Game Features
 
+**🎮 Modern Interface:**
+- **Context Menus**: Smart numbered options based on current situation
+- **Color-Coded Display**: NPCs (cyan), items (yellow), combat (red), quests (green) 
+- **ASCII Art Headers**: Beautiful visual representations for all locations
+- **Save/Load System**: JSON-based saves with timestamps and multiple slots
+- **Auto-Save**: Automatic progress saving on quest completions
+
+**🗡️ Adventure Elements:**
 - **6-Quest Story Campaign**: Complete quest chain from village newcomer to hero
 - **AI-Powered NPCs**: Dynamic conversations using Claude AI with persistent memories
 - **Turn-based Combat**: Strategic battles with attack/defend/flee options
@@ -63,6 +71,14 @@ python generative_zork_like.py
 - `defend` - Reduce incoming damage
 - `flee` - Attempt to escape battle
 
-**Other:**
+**Save & Utility:**
+- `save [name]` - Save game (default: quicksave)
+- `load [name]` - Load saved game
+- `saves` - List available save files
 - `help` - Show command list
 - `quit` - Exit game
+
+**Modern Features:**
+- **Numbered Menu**: Type 1-9 to select context menu options
+- **Auto-Save**: Game saves automatically on major events
+- **Color Display**: Enhanced visual experience with colored text

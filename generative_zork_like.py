@@ -22,10 +22,23 @@ Run:
 """
 
 import os
+import json
 import random
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional
+from datetime import datetime
+
+try:
+    from colorama import init, Fore, Back, Style
+    init(autoreset=True)  # Auto-reset colors after each print
+    COLORS_AVAILABLE = True
+except ImportError:
+    # Fallback if colorama not installed
+    class MockColors:
+        RED = GREEN = YELLOW = BLUE = MAGENTA = CYAN = WHITE = RESET = BRIGHT = RESET_ALL = ""
+    Fore = Back = Style = MockColors()
+    COLORS_AVAILABLE = False
 
 # ---------- API key loading ----------
 def load_anthropic_key() -> str:
@@ -59,6 +72,997 @@ def load_anthropic_key() -> str:
 
     return ""
 
+# ---------- Color utilities ----------
+def colorize_npc(text: str) -> str:
+    """Color NPC names and dialogue"""
+    return f"{Fore.CYAN}{Style.BRIGHT}{text}{Style.RESET_ALL}"
+
+def colorize_item(text: str) -> str:
+    """Color item names"""
+    return f"{Fore.YELLOW}{Style.BRIGHT}{text}{Style.RESET_ALL}"
+
+def colorize_combat(text: str) -> str:
+    """Color combat text"""
+    return f"{Fore.RED}{Style.BRIGHT}{text}{Style.RESET_ALL}"
+
+def colorize_quest(text: str) -> str:
+    """Color quest-related text"""
+    return f"{Fore.GREEN}{Style.BRIGHT}{text}{Style.RESET_ALL}"
+
+def colorize_location(text: str) -> str:
+    """Color location names"""
+    return f"{Fore.BLUE}{Style.BRIGHT}{text}{Style.RESET_ALL}"
+
+def colorize_command(text: str) -> str:
+    """Color command options"""
+    return f"{Fore.MAGENTA}{text}{Style.RESET_ALL}"
+
+def colorize_success(text: str) -> str:
+    """Color success messages"""
+    return f"{Fore.GREEN}{text}{Style.RESET_ALL}"
+
+def colorize_warning(text: str) -> str:
+    """Color warning messages"""
+    return f"{Fore.YELLOW}{text}{Style.RESET_ALL}"
+
+def colorize_error(text: str) -> str:
+    """Color error messages"""
+    return f"{Fore.RED}{text}{Style.RESET_ALL}"
+
+# ---------- ASCII Art ----------
+def get_location_art(location_key: str) -> str:
+    """Get ASCII art for a location"""
+    art = {
+        "village_square": """
+    ╭─────────────────────────────────────╮
+    │          VILLAGE SQUARE             │
+    │                                     │
+    │       🏠     ⚒️        🌳          |   
+    │      ELDR   BlkSmth   FOREST        │
+    │       Hut    Shop      Path         │
+    │                                     │
+    │           🗼        🏠             │
+    │          Sealed    Healer           |
+    |          Tower      Tent            │
+    ╰─────────────────────────────────────╯""",
+        
+        "blacksmith_shop": """
+    ╭─────────────────────────────────────╮
+    │           BLACKSMITH SHOP           │
+    │                                     │
+    │           ⚒️🗡️⚔️        X          │
+    │         Buy Weapons     Exit        │
+    │                                     │
+    │           💰 SHOP OPEN 💰          │
+    ╰─────────────────────────────────────╯""",
+        
+        "forest_path": """
+    ╭─────────────────────────────────────╮
+    │            FOREST PATH              │
+    │                                     │
+    │       🌲🌲🌲    🕳️      ⛏️        │
+    │       Village    Hidden    Iron     │
+    │        Square     Cave     Mine     │
+    │                                     │
+    │                                     │
+    ╰─────────────────────────────────────╯""",
+        
+        "iron_mine": """
+    ╭─────────────────────────────────────╮
+    │             IRON MINE               │
+    │                                     │
+    │               ⛏️💎                 │
+    │                Iron                 │
+    │                 Ore                 │
+    │                                     │
+    │                                     │
+    ╰─────────────────────────────────────╯""",
+        
+        "healer_tent": """
+    ╭─────────────────────────────────────╮
+    │         HEALER'S TENT              │
+    │                                     │
+    │    🕯️✨    🧪🌿    ❤️            │
+    │  Candles  Herbs   Healing           │
+    │   Light  Potions   Magic            │
+    │                                     │
+    │        💚 CARE 💚                 │
+    ╰─────────────────────────────────────╯""",
+        
+        "elder_hut": """
+    ╭─────────────────────────────────────╮
+    │          ELDER'S HUT               │
+    │                                     │
+    │    📚🔮    🛏️😷    ⭐            │
+    │   Books   Cursed   Ancient          │
+    │   Magic    Elder   Wisdom           │
+    │                                     │
+    │       🌟 CURSED 🌟                │
+    ╰─────────────────────────────────────╯""",
+        
+        "hidden_cave": """
+    ╭─────────────────────────────────────╮
+    │          HIDDEN CAVE               │
+    │                                     │
+    │    🕳️👹    💎✨    🚪            │
+    │   Dark   Gem     Deep               │
+    │  Depths  Shine   Passage            │
+    │                                     │
+    │      ⚠️ DANGER ⚠️                 │
+    ╰─────────────────────────────────────╯""",
+        
+        "deep_ruins": """
+    ╭─────────────────────────────────────╮
+    │          DEEP RUINS                │
+    │                                     │
+    │    🏛️👻    📜⚡    🗿            │
+    │  Ancient Guardian  Scroll           │
+    │   Ruins   Awake   Magic             │
+    │                                     │
+    │     ⚡ ANCIENT POWER ⚡            │
+    ╰─────────────────────────────────────╯""",
+        
+        "sealed_tower": """
+    ╭─────────────────────────────────────╮
+    │         SEALED TOWER               │
+    │                                     │
+    │    🗼🔒    🗝️✨    💰            │
+    │   Tower   Key    Treasure           │
+    │  Sealed  Magic   Awaits             │
+    │                                     │
+    │      🏆 FINAL GOAL 🏆             │
+    ╰─────────────────────────────────────╯"""
+    }
+    
+    return art.get(location_key, "")
+
+# ---------- Item and Creature Art ----------  
+def get_creature_art(creature_name: str) -> str:
+    """Get ASCII art for creatures"""
+    art = {
+        "Cave Beast": """
+    ╭──────────────────────────╮
+    │       ⚠️ DANGER! ⚠️       │
+    │                          │
+    │     🐺      👹      🦇    │
+    │   Prowling  Cave   Flying │
+    │    Beast   Demon   Terror │  
+    │                          │
+    │      💀 COMBAT 💀       │
+    ╰──────────────────────────╯""",
+        
+        "Ancient Guardian": """
+    ╭──────────────────────────╮
+    │    ⚡ ANCIENT POWER ⚡    │
+    │                          │
+    │     🗿      👻      ⚔️    │
+    │   Stone   Spirit  Weapons │
+    │  Guardian  Guide   Ready  │
+    │                          │
+    │     🏛️ GUARDIAN 🏛️      │
+    ╰──────────────────────────╯"""
+    }
+    return art.get(creature_name, "")
+
+def get_item_art(item_name: str) -> str:
+    """Get ASCII art for special items"""
+    art = {
+        "iron_ore": """
+    ╭──────────────────────────╮
+    │        🔨 MATERIAL 🔨    │
+    │                          │
+    │     ⛏️      🪨      ⚒️    │
+    │   Mining   Iron    Forge  │
+    │    Tools   Ore    Ready   │
+    │                          │
+    │    💎 VALUABLE ORE 💎    │
+    ╰──────────────────────────╯""",
+        
+        "glimmering_gem": """
+    ╭──────────────────────────╮
+    │       ✨ TREASURE ✨      │
+    │                          │
+    │     💎      🌟      ✨    │
+    │  Precious  Magic   Divine │
+    │    Gem     Light   Power  │
+    │                          │
+    │      🔮 MAGICAL 🔮       │
+    ╰──────────────────────────╯""",
+        
+        "ancient_scroll": """
+    ╭──────────────────────────╮
+    │      📜 KNOWLEDGE 📜      │
+    │                          │
+    │     📚      🔮      ⚡    │
+    │  Ancient  Mystery Secret  │
+    │  Wisdom   Symbols  Runes  │
+    │                          │
+    │     🗝️ IMPORTANT 🗝️      │
+    ╰──────────────────────────╯"""
+    }
+    return art.get(item_name, "")
+
+# ---------- Mini-Map System ----------
+def get_mini_map(w: "World") -> str:
+    """Generate a mini-map showing explored areas and connections"""
+    if not w.player.explored_areas:
+        return colorize_warning("🗺️ Mini-Map: No areas explored yet!")
+    
+    # Location coordinates for map layout
+    coords = {
+        "village_square": (4, 2),
+        "blacksmith_shop": (2, 1),
+        "forest_path": (6, 2),
+        "iron_mine": (8, 1), 
+        "healer_tent": (2, 3),
+        "elder_hut": (1, 2),
+        "hidden_cave": (6, 4),
+        "deep_ruins": (8, 4),
+        "sealed_tower": (6, 0)
+    }
+    
+    # Location symbols
+    symbols = {
+        "village_square": "🏛️",
+        "blacksmith_shop": "⚒️",
+        "forest_path": "🌲",
+        "iron_mine": "⛏️",
+        "healer_tent": "🏥",
+        "elder_hut": "🏠",
+        "hidden_cave": "🕳️",
+        "deep_ruins": "🏛️",
+        "sealed_tower": "🗼"
+    }
+    
+    # Create 10x6 grid
+    grid = [["  " for _ in range(10)] for _ in range(6)]
+    
+    # Place explored locations
+    for location in w.player.explored_areas:
+        if location in coords:
+            x, y = coords[location]
+            symbol = symbols.get(location, "?")
+            if location == w.player.location:
+                symbol = colorize_success(f"[{symbols.get(location, '?')}]")  # Current location
+            else:
+                symbol = colorize_item(symbols.get(location, "?"))
+            grid[y][x] = symbol
+    
+    # Add connections between explored areas  
+    connections = [
+        ("village_square", "blacksmith_shop", "─"),
+        ("village_square", "forest_path", "─"),
+        ("village_square", "healer_tent", "│"),
+        ("village_square", "elder_hut", "─"),
+        ("village_square", "sealed_tower", "│"),
+        ("forest_path", "iron_mine", "─"),
+        ("forest_path", "hidden_cave", "│"),
+        ("hidden_cave", "deep_ruins", "─")
+    ]
+    
+    for loc1, loc2, connector in connections:
+        if loc1 in w.player.explored_areas and loc2 in w.player.explored_areas:
+            x1, y1 = coords[loc1]
+            x2, y2 = coords[loc2]
+            
+            # Add connection line
+            if connector == "─":  # horizontal
+                for x in range(min(x1, x2) + 1, max(x1, x2)):
+                    if grid[y1][x] == "  ":
+                        grid[y1][x] = "─"
+            elif connector == "│":  # vertical
+                for y in range(min(y1, y2) + 1, max(y1, y2)):
+                    if grid[y][x1] == "  ":
+                        grid[y][x1] = "│"
+    
+    # Convert grid to string
+    map_str = colorize_command("🗺️ MINI-MAP") + f" ({len(w.player.explored_areas)}/9 areas)\n"
+    map_str += "╭" + "─" * 20 + "╮\n"
+    for row in grid:
+        map_str += "│" + "".join(row) + "│\n"
+    map_str += "╰" + "─" * 20 + "╯\n"
+    map_str += colorize_success("[🏛️]") + " = Current Location"
+    
+    return map_str
+
+# ---------- Achievement System ----------
+ACHIEVEMENTS = {
+    "first_steps": {
+        "name": "First Steps",
+        "description": "Visit your first location",
+        "icon": "👣"
+    },
+    "explorer": {
+        "name": "Explorer",
+        "description": "Visit 5 different locations",
+        "icon": "🗺️"
+    },
+    "completionist": {
+        "name": "Completionist", 
+        "description": "Visit all 9 locations",
+        "icon": "🌍"
+    },
+    "rich_merchant": {
+        "name": "Rich Merchant",
+        "description": "Accumulate 50+ gold",
+        "icon": "💰"
+    },
+    "warrior": {
+        "name": "Warrior",
+        "description": "Win your first combat",
+        "icon": "⚔️"
+    },
+    "quest_starter": {
+        "name": "Quest Starter",
+        "description": "Complete your first quest",
+        "icon": "📜"
+    },
+    "hero": {
+        "name": "Hero",
+        "description": "Complete all 6 main quests",
+        "icon": "🏆"
+    },
+    "socializer": {
+        "name": "Socializer",
+        "description": "Talk to all 3 NPCs",
+        "icon": "💬"
+    },
+    "treasure_hunter": {
+        "name": "Treasure Hunter",
+        "description": "Find the ancient treasure",
+        "icon": "💎"
+    },
+    "secret_keeper": {
+        "name": "Secret Keeper",
+        "description": "Discover and complete a hidden quest",
+        "icon": "🗝️"
+    }
+}
+
+def check_achievements(w: "World") -> List[str]:
+    """Check and award new achievements, returns list of newly earned ones"""
+    new_achievements = []
+    
+    # First Steps - visit first location
+    if "first_steps" not in w.player.achievements and len(w.player.explored_areas) >= 1:
+        w.player.achievements.append("first_steps")
+        new_achievements.append("first_steps")
+    
+    # Explorer - visit 5 locations  
+    if "explorer" not in w.player.achievements and len(w.player.explored_areas) >= 5:
+        w.player.achievements.append("explorer")
+        new_achievements.append("explorer")
+    
+    # Completionist - visit all 9 locations
+    if "completionist" not in w.player.achievements and len(w.player.explored_areas) >= 9:
+        w.player.achievements.append("completionist")
+        new_achievements.append("completionist")
+    
+    # Rich Merchant - 50+ gold
+    if "rich_merchant" not in w.player.achievements and w.player.gold >= 50:
+        w.player.achievements.append("rich_merchant")
+        new_achievements.append("rich_merchant")
+    
+    # Quest Starter - complete first quest (exclude hidden quest)
+    main_quests = ["prove_worth", "clear_cave", "heal_elder", "retrieve_scroll", "forge_key", "final_treasure"]
+    completed_main_quests = [q for q in main_quests if w.player.quests.get(q) == "completed"]
+    
+    if "quest_starter" not in w.player.achievements and len(completed_main_quests) >= 1:
+        w.player.achievements.append("quest_starter")
+        new_achievements.append("quest_starter")
+    
+    # Hero - complete all 6 main quests (hidden quest doesn't count)
+    if "hero" not in w.player.achievements and len(completed_main_quests) >= 6:
+        w.player.achievements.append("hero")
+        new_achievements.append("hero")
+    
+    # Socializer - talk to all NPCs (check for actual player conversations)
+    talked_to_npcs = []
+    for npc_key, npc in w.npcs.items():
+        # Check if any memory entries contain player conversations
+        if any("Player said:" in memory_entry for memory_entry in npc.memory):
+            talked_to_npcs.append(npc_key)
+    if "socializer" not in w.player.achievements and len(talked_to_npcs) >= 3:
+        w.player.achievements.append("socializer")
+        new_achievements.append("socializer")
+    
+    # Treasure Hunter - complete final quest
+    if "treasure_hunter" not in w.player.achievements and w.player.quests.get("ancient_treasure") == "completed":
+        w.player.achievements.append("treasure_hunter")
+        new_achievements.append("treasure_hunter")
+    
+    # Secret Keeper - complete hidden side quest
+    if "secret_keeper" not in w.player.achievements and w.player.quests.get("lost_trinket") == "completed":
+        w.player.achievements.append("secret_keeper")
+        new_achievements.append("secret_keeper")
+    
+    return new_achievements
+
+def show_achievement_notification(achievement_key: str) -> str:
+    """Show notification for newly earned achievement"""
+    if achievement_key not in ACHIEVEMENTS:
+        return ""
+    
+    achievement = ACHIEVEMENTS[achievement_key]
+    return colorize_success(f"\n🎉 ACHIEVEMENT UNLOCKED: {achievement['icon']} {achievement['name']}\n   {achievement['description']}")
+
+def show_achievements_list(w: "World") -> str:
+    """Show all achievements and progress"""
+    output = colorize_command("🏆 ACHIEVEMENTS") + f" ({len(w.player.achievements)}/{len(ACHIEVEMENTS)})\n\n"
+    
+    for key, achievement in ACHIEVEMENTS.items():
+        if key in w.player.achievements:
+            status = colorize_success("✅ UNLOCKED")
+        else:
+            status = colorize_warning("🔒 LOCKED")
+        
+        output += f"{achievement['icon']} {achievement['name']} - {status}\n"
+        output += f"   {achievement['description']}\n\n"
+    
+    return output.strip()
+
+# ---------- Game Over System ----------
+def handle_game_completion() -> str:
+    """Handle game completion with menu options"""
+    completion_screen = f"""
+{colorize_success("═══════════════════════════════════════")}
+{colorize_success("           GAME COMPLETED!             ")}
+{colorize_success("═══════════════════════════════════════")}
+
+{colorize_quest("🏆 Congratulations, Hero! 🏆")}
+{colorize_quest("You have completed your epic journey!")}
+
+{colorize_command("What would you like to do?")}
+
+{colorize_command("1.")} Play Again
+{colorize_command("2.")} Load Saved Game  
+{colorize_command("3.")} Quit Game
+
+{colorize_warning("Enter your choice (1-3):")}"""
+    
+    print(completion_screen)
+    
+    while True:
+        try:
+            choice = input("> ").strip()
+            
+            if choice == "1":
+                print(f"\n{colorize_success('Starting new game...')}\n")
+                return "__RESTART__"
+            elif choice == "2":
+                # Show available saves
+                try:
+                    saves_dir = Path("saves")
+                    if saves_dir.exists():
+                        save_files = [f.stem for f in saves_dir.glob("*.json")]
+                        if save_files:
+                            print(f"\n{colorize_command('Available saves:')}")
+                            for i, save_name in enumerate(save_files, 1):
+                                print(f"  {colorize_command(str(i))}. {save_name}")
+                            print(f"  {colorize_command('0')}. Cancel")
+                            
+                            while True:
+                                load_choice = input("\nEnter save number to load: ").strip()
+                                try:
+                                    if load_choice == "0":
+                                        break
+                                    load_idx = int(load_choice) - 1
+                                    if 0 <= load_idx < len(save_files):
+                                        save_name = save_files[load_idx]
+                                        print(f"\n{colorize_success(f'Loading {save_name}...')}\n")
+                                        return f"__LOAD__{save_name}"
+                                    else:
+                                        print(colorize_error("Invalid choice. Try again."))
+                                except ValueError:
+                                    print(colorize_error("Please enter a number."))
+                        else:
+                            print(f"\n{colorize_warning('No save files found.')}")
+                    else:
+                        print(f"\n{colorize_warning('No save files found.')}")
+                except Exception:
+                    print(f"\n{colorize_error('Error loading save files.')}")
+            elif choice == "3":
+                print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
+                return "__QUIT__"
+            else:
+                print(colorize_error("Invalid choice. Please enter 1, 2, or 3."))
+                
+        except (KeyboardInterrupt, EOFError):
+            print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
+            return "__QUIT__"
+
+def handle_game_over() -> str:
+    """Handle game over with menu options"""
+    game_over_screen = f"""
+{colorize_error("═══════════════════════════════════════")}
+{colorize_error("              GAME OVER                ")}
+{colorize_error("═══════════════════════════════════════")}
+
+{colorize_combat("Your adventure has come to an end...")}
+{colorize_command("What would you like to do?")}
+
+{colorize_command("1.")} Restart Game
+{colorize_command("2.")} Load Saved Game  
+{colorize_command("3.")} Quit Game
+
+{colorize_warning("Enter your choice (1-3):")}"""
+    
+    print(game_over_screen)
+    
+    while True:
+        try:
+            choice = input("> ").strip()
+            
+            if choice == "1":
+                print(f"\n{colorize_success('Restarting game...')}\n")
+                return "__RESTART__"
+            elif choice == "2":
+                # Show available saves
+                try:
+                    saves_dir = Path("saves")
+                    if saves_dir.exists():
+                        save_files = [f.stem for f in saves_dir.glob("*.json")]
+                        if save_files:
+                            print(f"\n{colorize_command('Available saves:')}")
+                            for i, save_name in enumerate(save_files, 1):
+                                print(f"  {colorize_command(str(i))}. {save_name}")
+                            print(f"  {colorize_command('0')}. Cancel")
+                            
+                            while True:
+                                load_choice = input("\nEnter save number to load: ").strip()
+                                try:
+                                    if load_choice == "0":
+                                        break
+                                    load_idx = int(load_choice) - 1
+                                    if 0 <= load_idx < len(save_files):
+                                        save_name = save_files[load_idx]
+                                        print(f"\n{colorize_success(f'Loading {save_name}...')}\n")
+                                        return f"__LOAD__{save_name}"
+                                    else:
+                                        print(colorize_error("Invalid choice. Try again."))
+                                except ValueError:
+                                    print(colorize_error("Please enter a number."))
+                        else:
+                            print(f"\n{colorize_warning('No save files found.')}")
+                    else:
+                        print(f"\n{colorize_warning('No save files found.')}")
+                except Exception:
+                    print(f"\n{colorize_error('Error loading save files.')}")
+            elif choice == "3":
+                print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
+                return "__QUIT__"
+            else:
+                print(colorize_error("Invalid choice. Please enter 1, 2, or 3."))
+                
+        except (KeyboardInterrupt, EOFError):
+            print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
+            return "__QUIT__"
+
+# ---------- Enhanced NPC System ----------
+def update_relationship(npc: "NPC", points_change: int, reason: str = "") -> List[str]:
+    """Update NPC relationship and return any level change messages"""
+    messages = []
+    old_level = npc.relationship_level
+    npc.relationship_points = max(0, npc.relationship_points + points_change)
+    
+    # Update relationship level based on points
+    if npc.relationship_points >= 76:
+        npc.relationship_level = "ally"
+    elif npc.relationship_points >= 26:
+        npc.relationship_level = "friendly"
+    else:
+        npc.relationship_level = "neutral"
+    
+    # Generate level change message
+    if old_level != npc.relationship_level:
+        if npc.relationship_level == "friendly" and old_level == "neutral":
+            messages.append(f"\n💚 {npc.name} seems to like you more now! (Relationship: {colorize_success('Friendly')})")
+        elif npc.relationship_level == "ally" and old_level == "friendly":
+            messages.append(f"\n💙 {npc.name} considers you a trusted ally! (Relationship: {colorize_success('Ally')})")
+        elif npc.relationship_level == "neutral" and old_level == "friendly":
+            messages.append(f"\n💔 {npc.name} seems less friendly towards you. (Relationship: {colorize_warning('Neutral')})")
+    
+    if reason:
+        npc.memory.append(f"Relationship changed by {points_change} ({reason})")
+    
+    return messages
+
+def set_emotional_state(npc: "NPC", emotion: str, reason: str = "") -> str:
+    """Set NPC emotional state and return description"""
+    old_emotion = npc.emotional_state
+    npc.emotional_state = emotion
+    
+    if reason:
+        npc.memory.append(f"Emotional state changed to {emotion} ({reason})")
+    
+    emotion_indicators = {
+        "happy": "😊",
+        "sad": "😢", 
+        "angry": "😠",
+        "excited": "🤩",
+        "worried": "😰",
+        "calm": "😌"
+    }
+    
+    indicator = emotion_indicators.get(emotion, "😐")
+    if old_emotion != emotion:
+        return f" {indicator}"
+    return ""
+
+def track_conversation_topic(npc: "NPC", topic: str) -> None:
+    """Track what topics have been discussed with this NPC"""
+    topic = topic.lower()
+    npc.conversation_topics[topic] = npc.conversation_topics.get(topic, 0) + 1
+
+def get_relationship_modifier(npc: "NPC") -> str:
+    """Get relationship-based dialogue modifier"""
+    modifiers = {
+        "neutral": "",
+        "friendly": " (They seem to enjoy talking with you.)",
+        "ally": " (They trust you completely and speak openly.)"
+    }
+    return modifiers.get(npc.relationship_level, "")
+
+def get_emotional_context(npc: "NPC") -> str:
+    """Get emotional state context for dialogue"""
+    contexts = {
+        "happy": " They seem cheerful and upbeat.",
+        "sad": " There's a sadness in their eyes.",
+        "angry": " They appear irritated or upset.",
+        "excited": " They're clearly excited about something.",
+        "worried": " They look concerned about something.",
+        "calm": ""
+    }
+    return contexts.get(npc.emotional_state, "")
+
+def show_relationships(w: "World") -> str:
+    """Display relationship status with all NPCs"""
+    output = [colorize_command("👥 RELATIONSHIPS\n")]
+    
+    for npc_key, npc in w.npcs.items():
+        # Relationship level with colors
+        level_colors = {
+            "neutral": colorize_warning("Neutral"),
+            "friendly": colorize_success("Friendly"), 
+            "ally": colorize_item("Ally")
+        }
+        level_text = level_colors.get(npc.relationship_level, npc.relationship_level)
+        
+        # Emotional state with emoji
+        emotion_emojis = {
+            "happy": "😊", "sad": "😢", "angry": "😠",
+            "excited": "🤩", "worried": "😰", "calm": "😌"
+        }
+        emotion_emoji = emotion_emojis.get(npc.emotional_state, "😐")
+        
+        # Progress bar for relationship points
+        points = npc.relationship_points
+        max_points = 100
+        filled = int((points / max_points) * 10)
+        bar = "█" * filled + "░" * (10 - filled)
+        
+        output.append(f"{colorize_npc(npc.name)} {emotion_emoji}")
+        output.append(f"  Status: {level_text} ({points}/100)")
+        output.append(f"  Progress: [{colorize_item(bar)}]")
+        
+        # Show most discussed topics
+        if npc.conversation_topics:
+            top_topics = sorted(npc.conversation_topics.items(), key=lambda x: x[1], reverse=True)[:3]
+            topics_text = ", ".join([f"{topic}({count})" for topic, count in top_topics])
+            output.append(f"  Topics: {colorize_command(topics_text)}")
+        
+        output.append("")
+    
+    return "\n".join(output).strip()
+
+# ---------- Enhanced Inventory System ----------
+def get_player_stats(w: "World") -> Dict[str, int]:
+    """Calculate player's total stats including equipment bonuses"""
+    base_stats = {
+        "attack": 2,  # base attack without weapons
+        "defense": 0, # base defense 
+        "max_hp": w.player.max_hp,
+        "hp_regen": 0
+    }
+    
+    # Add weapon stats
+    if w.player.equipment.weapon and w.player.equipment.weapon in ITEMS:
+        weapon = ITEMS[w.player.equipment.weapon]
+        for stat, value in weapon.stats.items():
+            base_stats[stat] = base_stats.get(stat, 0) + value
+    
+    # Add armor stats
+    if w.player.equipment.armor and w.player.equipment.armor in ITEMS:
+        armor = ITEMS[w.player.equipment.armor]
+        for stat, value in armor.stats.items():
+            base_stats[stat] = base_stats.get(stat, 0) + value
+    
+    # Add accessory stats
+    if w.player.equipment.accessory and w.player.equipment.accessory in ITEMS:
+        accessory = ITEMS[w.player.equipment.accessory] 
+        for stat, value in accessory.stats.items():
+            base_stats[stat] = base_stats.get(stat, 0) + value
+    
+    return base_stats
+
+def show_enhanced_inventory(w: "World") -> str:
+    """Display enhanced inventory with categories and equipment"""
+    output = [colorize_command("📦 INVENTORY") + f" (Gold: {colorize_item(str(w.player.gold))})\n"]
+    
+    # Equipment Section
+    output.append(colorize_command("⚔️ EQUIPMENT:"))
+    weapon_name = ITEMS[w.player.equipment.weapon].name if w.player.equipment.weapon else "None"
+    armor_name = ITEMS[w.player.equipment.armor].name if w.player.equipment.armor else "None"  
+    accessory_name = ITEMS[w.player.equipment.accessory].name if w.player.equipment.accessory else "None"
+    
+    output.append(f"  Weapon: {colorize_item(weapon_name)}")
+    output.append(f"  Armor: {colorize_item(armor_name)}")
+    output.append(f"  Accessory: {colorize_item(accessory_name)}")
+    output.append("")
+    
+    # Stats Section
+    stats = get_player_stats(w)
+    output.append(colorize_command("📊 STATS:"))
+    output.append(f"  Attack: {colorize_combat(str(stats['attack']))}")
+    output.append(f"  Defense: {colorize_success(str(stats['defense']))}")
+    output.append(f"  Max HP: {colorize_success(str(stats['max_hp']))}")
+    if stats['hp_regen'] > 0:
+        output.append(f"  HP Regen: {colorize_success(str(stats['hp_regen']))}")
+    output.append("")
+    
+    # Categorized Items
+    categories = {
+        "weapon": "⚔️ WEAPONS:",
+        "armor": "🛡️ ARMOR:", 
+        "accessory": "💎 ACCESSORIES:",
+        "consumable": "🧪 CONSUMABLES:",
+        "quest": "📜 QUEST ITEMS:",
+        "material": "🔨 MATERIALS:"
+    }
+    
+    for category, header in categories.items():
+        category_items = [item for item in w.player.inventory if item in ITEMS and ITEMS[item].category == category]
+        if category_items:
+            output.append(colorize_command(header))
+            for item in sorted(category_items):
+                item_obj = ITEMS[item]
+                equipped_marker = ""
+                if (category == "weapon" and item == w.player.equipment.weapon or
+                    category == "armor" and item == w.player.equipment.armor or
+                    category == "accessory" and item == w.player.equipment.accessory):
+                    equipped_marker = " " + colorize_success("[EQUIPPED]")
+                
+                stats_text = ""
+                if item_obj.stats:
+                    stat_parts = []
+                    for stat, value in item_obj.stats.items():
+                        if value > 0:
+                            stat_parts.append(f"+{value} {stat}")
+                    if stat_parts:
+                        stats_text = f" ({', '.join(stat_parts)})"
+                
+                output.append(f"  {colorize_item(item_obj.name)}{stats_text}{equipped_marker}")
+            output.append("")
+    
+    # Items not in database (legacy items)
+    other_items = [item for item in w.player.inventory if item not in ITEMS]
+    if other_items:
+        output.append(colorize_command("❓ OTHER:"))
+        for item in sorted(other_items):
+            output.append(f"  {colorize_item(item.replace('_', ' ').title())}")
+        output.append("")
+    
+    if not w.player.inventory:
+        output.append(colorize_warning("Your inventory is empty."))
+    
+    return "\n".join(output).strip()
+
+def equip_item(w: "World", item_key: str) -> str:
+    """Equip an item from inventory"""
+    if item_key not in w.player.inventory:
+        return f"You don't have a '{item_key}' to equip."
+    
+    if item_key not in ITEMS:
+        return f"'{item_key}' cannot be equipped."
+    
+    item = ITEMS[item_key]
+    if not item.equipable:
+        return f"'{item.name}' cannot be equipped."
+    
+    # Unequip current item in slot if any
+    if item.category == "weapon":
+        if w.player.equipment.weapon:
+            old_item = ITEMS[w.player.equipment.weapon]
+            w.player.equipment.weapon = item_key
+            return f"You equip the {colorize_item(item.name)} and put away the {old_item.name}."
+        else:
+            w.player.equipment.weapon = item_key
+            return f"You equip the {colorize_item(item.name)}."
+    
+    elif item.category == "armor":
+        if w.player.equipment.armor:
+            old_item = ITEMS[w.player.equipment.armor]
+            w.player.equipment.armor = item_key
+            return f"You equip the {colorize_item(item.name)} and remove the {old_item.name}."
+        else:
+            w.player.equipment.armor = item_key
+            return f"You equip the {colorize_item(item.name)}."
+    
+    elif item.category == "accessory":
+        if w.player.equipment.accessory:
+            old_item = ITEMS[w.player.equipment.accessory]
+            w.player.equipment.accessory = item_key
+            return f"You equip the {colorize_item(item.name)} and remove the {old_item.name}."
+        else:
+            w.player.equipment.accessory = item_key
+            return f"You equip the {colorize_item(item.name)}."
+    
+    return f"'{item.name}' cannot be equipped in any slot."
+
+def unequip_item(w: "World", slot: str) -> str:
+    """Unequip an item from equipment slot"""
+    slot = slot.lower()
+    
+    if slot == "weapon" and w.player.equipment.weapon:
+        item = ITEMS[w.player.equipment.weapon]
+        w.player.equipment.weapon = None
+        return f"You unequip the {colorize_item(item.name)}."
+    
+    elif slot == "armor" and w.player.equipment.armor:
+        item = ITEMS[w.player.equipment.armor]
+        w.player.equipment.armor = None
+        return f"You unequip the {colorize_item(item.name)}."
+    
+    elif slot == "accessory" and w.player.equipment.accessory:
+        item = ITEMS[w.player.equipment.accessory]
+        w.player.equipment.accessory = None
+        return f"You unequip the {colorize_item(item.name)}."
+    
+    else:
+        return f"No item equipped in {slot} slot."
+
+def use_item(w: "World", item_key: str) -> str:
+    """Use a consumable item"""
+    if item_key not in w.player.inventory:
+        return f"You don't have a '{item_key}' to use."
+    
+    if item_key not in ITEMS:
+        return f"You cannot use '{item_key}'."
+    
+    item = ITEMS[item_key]
+    if item.category != "consumable":
+        return f"'{item.name}' is not usable."
+    
+    # Use the item
+    w.player.inventory.remove(item_key)
+    
+    if "heal" in item.stats:
+        heal_amount = item.stats["heal"]
+        old_hp = w.player.hp
+        w.player.hp = min(w.player.max_hp, w.player.hp + heal_amount)
+        actual_heal = w.player.hp - old_hp
+        return f"You use the {colorize_item(item.name)} and recover {colorize_success(str(actual_heal))} HP. (HP: {w.player.hp}/{w.player.max_hp})"
+    
+    return f"You use the {colorize_item(item.name)}."
+
+# ---------- Enhanced Inventory System ----------
+@dataclass
+class Item:
+    key: str
+    name: str
+    category: str  # weapon, armor, accessory, consumable, quest, material
+    description: str
+    stats: Dict[str, int] = field(default_factory=dict)  # {attack: 5, defense: 2, etc}
+    value: int = 0
+    equipable: bool = False
+
+@dataclass 
+class Equipment:
+    weapon: Optional[str] = None
+    armor: Optional[str] = None
+    accessory: Optional[str] = None
+
+# Item Database
+ITEMS = {
+    "rusty_sword": Item(
+        key="rusty_sword",
+        name="Rusty Sword", 
+        category="weapon",
+        description="An old, rusty blade. Better than nothing.",
+        stats={"attack": 3},
+        value=10,
+        equipable=True
+    ),
+    "broad_sword": Item(
+        key="broad_sword",
+        name="Broad Sword",
+        category="weapon", 
+        description="A masterfully forged blade with excellent balance.",
+        stats={"attack": 8},
+        value=50,
+        equipable=True
+    ),
+    "leather_armor": Item(
+        key="leather_armor",
+        name="Leather Armor",
+        category="armor",
+        description="Basic protection from wild beasts.",
+        stats={"defense": 3},
+        value=25,
+        equipable=True
+    ),
+    "magical_amulet": Item(
+        key="magical_amulet", 
+        name="Magical Amulet",
+        category="accessory",
+        description="A mystical amulet that radiates healing energy.",
+        stats={"max_hp": 5, "hp_regen": 1},
+        value=100,
+        equipable=True
+    ),
+    "iron_ore": Item(
+        key="iron_ore",
+        name="Iron Ore",
+        category="material",
+        description="Raw iron ore, perfect for forging.",
+        value=15
+    ),
+    "glimmering_gem": Item(
+        key="glimmering_gem",
+        name="Glimmering Gem", 
+        category="quest",
+        description="A mysterious gem that pulses with magical energy.",
+        value=200
+    ),
+    "ancient_scroll": Item(
+        key="ancient_scroll",
+        name="Ancient Scroll",
+        category="quest", 
+        description="Ancient runes cover this weathered parchment.",
+        value=150
+    ),
+    "master_key": Item(
+        key="master_key",
+        name="Master Key",
+        category="quest",
+        description="An ornate key humming with arcane power.",
+        value=300
+    ),
+    "health_potion": Item(
+        key="health_potion",
+        name="Health Potion",
+        category="consumable",
+        description="Restores health when consumed.",
+        stats={"heal": 15},
+        value=20
+    ),
+    "elder_sword": Item(
+        key="elder_sword",
+        name="Elder Sword",
+        category="weapon",
+        description="A legendary blade forged by ancient masters. Its edge gleams with otherworldly sharpness.",
+        stats={"attack": 12},
+        value=200,
+        equipable=True
+    ),
+    "ancient_trinket": Item(
+        key="ancient_trinket",
+        name="Ancient Trinket",
+        category="quest",
+        description="A small ornate medallion with intricate engravings. It feels warm to the touch.",
+        value=300
+    ),
+    "guardian_armor": Item(
+        key="guardian_armor",
+        name="Guardian Armor", 
+        category="armor",
+        description="Ancient plate armor blessed with protective runes. Reduces incoming damage significantly.",
+        stats={"defense": 5},
+        value=150,
+        equipable=True
+    )
+}
+
 # ---------- Data models ----------
 @dataclass
 class NPC:
@@ -66,6 +1070,10 @@ class NPC:
     name: str
     personality: str
     memory: List[str] = field(default_factory=list)
+    relationship_level: str = "neutral"  # neutral, friendly, ally
+    relationship_points: int = 0  # 0-25=neutral, 26-75=friendly, 76+=ally
+    emotional_state: str = "calm"  # calm, happy, sad, angry, excited, worried
+    conversation_topics: Dict[str, int] = field(default_factory=dict)  # topic: times_discussed
 
 @dataclass
 class Location:
@@ -84,6 +1092,10 @@ class Player:
     gold: int = 0
     hp: int = 20
     max_hp: int = 20
+    previous_location: str = ""  # Track where player came from
+    explored_areas: List[str] = field(default_factory=list)  # Track visited locations
+    achievements: List[str] = field(default_factory=list)  # Unlocked achievements
+    equipment: Equipment = field(default_factory=Equipment)  # Equipped items
 
 @dataclass
 class Monster:
@@ -105,6 +1117,7 @@ class World:
 SHOP = {
     "blacksmith": {
         "rusty_sword": 10,
+        "guardian_armor": 15,
     }
 }
 
@@ -114,7 +1127,8 @@ def build_world() -> World:
         "village_square": Location(
             key="village_square",
             description="Village Square — smithy smoke curls into the sky. A forest path leads north. An ancient tower looms to the east.",
-            exits=["blacksmith_shop","forest_path","elder_hut","sealed_tower","healer_tent"]
+            exits=["blacksmith_shop","forest_path","elder_hut","sealed_tower","healer_tent"],
+            npcs=["wanderer"]
         ),
         "blacksmith_shop": Location(
             key="blacksmith_shop",
@@ -131,7 +1145,8 @@ def build_world() -> World:
             key="iron_mine",
             description="Iron Mine — abandoned shafts echo with your footsteps. Rusty ore glints in the dim light.",
             exits=["forest_path"],
-            items=["iron_ore"]
+            items=["iron_ore"],
+            npcs=["miner"]
         ),
         "healer_tent": Location(
             key="healer_tent",
@@ -147,19 +1162,25 @@ def build_world() -> World:
         ),
         "hidden_cave": Location(
             key="hidden_cave",
-            description="Hidden Cave — your footsteps echo; the air is cool and still.",
+            description="Hidden Cave — your footsteps echo; the air is cool and still. You notice a faint draft coming from behind some loose rocks.",
             exits=["forest_path","deep_ruins"]
         ),
         "deep_ruins": Location(
             key="deep_ruins",
             description="Deep Ruins — ancient stone corridors carved with mysterious symbols. The air hums with old magic.",
             exits=["hidden_cave"],
-            items=["ancient_scroll"]
+            items=[]  # Ancient scroll only appears after defeating Ancient Guardian
         ),
         "sealed_tower": Location(
             key="sealed_tower",
             description="Sealed Tower — a massive door blocks your way, covered in arcane locks. Beyond lies untold treasure.",
             exits=["village_square"],
+        ),
+        "secret_chamber": Location(
+            key="secret_chamber",
+            description="Secret Chamber — a small hidden room behind the cave wall. Ancient symbols glow faintly on the walls, and you see something glinting in an alcove.",
+            exits=["hidden_cave"],
+            items=["ancient_trinket"]
         ),
     }
     npcs = {
@@ -167,19 +1188,42 @@ def build_world() -> World:
             key="blacksmith",
             name="Rogan the Blacksmith",
             personality="Gruff but helpful, secretly fond of gossip.",
-            memory=["Met the player in the village square.","Heard rumors of a lost gem in the cave."]
+            memory=["Met the player in the village square.","Heard rumors of a lost gem in the cave."],
+            emotional_state="calm",
+            relationship_level="neutral"
         ),
         "elder": NPC(
             key="elder",
             name="Elder Theron",
             personality="Wise but weakened by a mysterious curse. Speaks in riddles and ancient wisdom.",
-            memory=["Has been cursed for weeks, growing weaker.","Knows ancient magic and village history."]
+            memory=["Has been cursed for weeks, growing weaker.","Knows ancient magic and village history."],
+            emotional_state="sad",  # He's cursed and weakening
+            relationship_level="neutral"
         ),
         "healer": NPC(
             key="healer",
             name="Mira the Healer",
             personality="Kind and gentle, devoted to helping wounded adventurers. Charges fair prices for healing.",
-            memory=["Runs the village healing tent.","Knows herbal remedies and basic healing magic."]
+            memory=["Runs the village healing tent.","Knows herbal remedies and basic healing magic."],
+            emotional_state="calm",
+            relationship_level="friendly",  # Healers are naturally more friendly
+            relationship_points=30
+        ),
+        "wanderer": NPC(
+            key="wanderer",
+            name="Kael the Wanderer",
+            personality="A mysterious traveler who seems to be searching for something precious. Speaks wistfully of lost artifacts.",
+            memory=["Has been wandering the village for days.","Searching for something important but won't say what."],
+            emotional_state="worried",
+            relationship_level="neutral"
+        ),
+        "miner": NPC(
+            key="miner",
+            name="Old Gareth",
+            personality="A retired miner who worked the caves for decades. Has many stories about hidden passages and secret chambers.",
+            memory=["Worked in the caves for 40 years before retiring.","Knows the underground passages better than anyone."],
+            emotional_state="calm",
+            relationship_level="neutral"
         )
     }
     player = Player(
@@ -191,16 +1235,267 @@ def build_world() -> World:
             "heal_elder": "not_started",         # Quest 3: Trade gem to heal elder
             "retrieve_scroll": "not_started",    # Quest 4: Get ancient scroll from ruins
             "forge_key": "not_started",          # Quest 5: Get materials, forge master key
-            "final_treasure": "not_started"      # Quest 6: Use key to claim treasure
+            "final_treasure": "not_started",     # Quest 6: Use key to claim treasure
+            "lost_trinket": "not_started"        # Hidden Side Quest: Find wanderer's trinket
         },
         gold=15,
-        hp=20, max_hp=20
+        hp=20, max_hp=20,
+        explored_areas=["village_square"]        # Start with village explored
     )
     return World(player=player, locations=locations, npcs=npcs, flags={})
+
+# ---------- Conversation System ----------
+def conversation_mode(w: World, npc_key: str) -> str:
+    """Enter interactive conversation mode with an NPC"""
+    if w.flags.get("in_combat"):
+        return "No time to chat—you're in a fight!"
+    
+    loc = w.locations[w.player.location]
+    if npc_key not in loc.npcs: 
+        return f"There's no one named '{npc_key}' here."
+    
+    npc = w.npcs[npc_key]
+    
+    # Enter conversation mode
+    w.flags["in_conversation"] = True
+    w.flags["conversation_npc"] = npc_key
+    
+    conversation_header = f"""
+{colorize_command("═══════════════════════════════════════")}
+{colorize_command(f"      TALKING TO {npc.name.upper()}")}
+{colorize_command("═══════════════════════════════════════")}
+
+{colorize_npc(f"{npc.name} looks at you attentively, ready to chat.")}
+{colorize_warning("Type your message or 'exit' to end the conversation.")}
+"""
+    
+    print(conversation_header)
+    
+    while w.flags.get("in_conversation", False):
+        try:
+            user_input = input(f"{colorize_command('You:')} ").strip()
+            
+            if user_input.lower() in ["exit", "quit", "leave", "bye", "goodbye"]:
+                w.flags["in_conversation"] = False
+                w.flags.pop("conversation_npc", None)
+                print(f"\n{colorize_success('You end the conversation.')}")
+                break
+            
+            if not user_input:
+                print(colorize_warning("Say something or type 'exit' to leave."))
+                continue
+            
+            # Process the conversation
+            response = talk_to_conversation(w, npc_key, user_input)
+            print(f"{colorize_npc(f'{npc.name}:')} {response}")
+            
+        except (KeyboardInterrupt, EOFError):
+            w.flags["in_conversation"] = False
+            w.flags.pop("conversation_npc", None)
+            print(f"\n{colorize_success('You end the conversation.')}")
+            break
+    
+    return ""
+
+def talk_to_conversation(w: World, npc_key: str, text: str) -> str:
+    """Handle conversation within conversation mode (simplified version of talk_to)"""
+    npc = w.npcs[npc_key]
+    
+    # Track conversation and relationship
+    npc.memory.append(f"Player said: {text.strip()} at {w.player.location}")
+    
+    # Basic relationship gain for talking (+1 point)
+    relationship_messages = update_relationship(npc, 1, "friendly conversation")
+    
+    # Track conversation topics
+    words = text.lower().split()
+    for word in words:
+        if len(word) > 3:  # Only track meaningful words
+            track_conversation_topic(npc, word)
+    
+    # CHECK QUEST INTERACTIONS FIRST - before AI response
+    # Quest interactions with wanderer
+    if npc_key == "wanderer":
+        # Player brings back the trinket
+        if "ancient_trinket" in w.player.inventory and any(k in text.lower() for k in ("trinket", "medallion", "found", "artifact")):
+            w.player.inventory.remove("ancient_trinket")
+            w.player.inventory.append("elder_sword")
+            w.player.quests["lost_trinket"] = "completed"
+            npc.memory.append("Player returned the ancient trinket.")
+            
+            # Major relationship boost and happiness
+            update_relationship(npc, 25, "returning precious family heirloom")
+            set_emotional_state(npc, "happy", "overjoyed to have family trinket back")
+            
+            # Hidden achievement
+            if "trinket_returner" not in w.player.achievements:
+                w.player.achievements.append("trinket_returner")
+            
+            auto_save(w, "quest_lost_trinket")
+            return "Kael's eyes fill with tears as he takes the trinket. 'You found it! My family's most precious heirloom!' He reaches into his pack and draws out a magnificent sword. 'This Elder Sword has been in my family for centuries. It's yours now - you've earned it a thousand times over.' \n\n" + colorize_success("(Hidden Quest completed: Lost Trinket)") + "\n" + colorize_item("(Received: Elder Sword - A legendary weapon!)")
+    
+    # Get enhanced NPC response with context
+    out = npc_reply_claude(npc, text, w)
+    
+    # Quest interactions (keeping existing quest logic for hints)
+    quest_result = handle_quest_interactions(w, npc_key, text, npc)
+    if quest_result:
+        return quest_result
+    
+    # Return just the response without extra formatting for conversation mode
+    return out.strip()
+
+def handle_quest_interactions(w: World, npc_key: str, text: str, npc) -> str:
+    """Handle quest interactions during conversation"""
+    # Quest interactions with blacksmith
+    if npc_key == "blacksmith":
+        # Give iron ore to get broad sword
+        if "iron_ore" in w.player.inventory and any(k in text.lower() for k in ("ore", "iron", "forge", "sword", "weapon", "craft", "make")):
+            w.player.inventory.remove("iron_ore")
+            w.player.inventory.append("broad_sword")
+            w.player.quests["prove_worth"] = "completed"
+            npc.memory.append("Forged broad sword from iron ore for player.")
+            
+            # Quest reward gold
+            w.player.gold += 8
+            
+            # Major relationship boost and excitement
+            update_relationship(npc, 15, "completing prove worth quest")
+            set_emotional_state(npc, "excited", "impressed with player's dedication")
+            
+            auto_save(w, "quest_prove_worth")
+            return "The blacksmith's eyes light up as he examines the ore. 'Fine quality iron! Let me forge you a proper weapon.' He works the metal with expert skill, creating a gleaming broad sword. \n\n" + colorize_success("(Quest completed: Prove Your Worth)") + "\n" + colorize_item("(Received: Broad Sword - A superior weapon!)") + "\n" + colorize_item("(Quest reward: +8 gold!)")
+        
+        # Start first quest
+        elif w.player.quests.get("prove_worth") == "not_started" and any(k in text.lower() for k in ("work", "help", "sword", "weapon")):
+            w.player.quests["prove_worth"] = "started"
+            npc.memory.append("Asked player to prove their worth by bringing iron ore.")
+            return npc_reply_claude(npc, text, w) + "\n\n" + colorize_quest("(New quest started: Prove Your Worth - Get iron ore from the mine)")
+        
+        # Start cave quest after buying sword
+        elif "rusty_sword" in w.player.inventory and w.player.quests.get("clear_cave") == "not_started" and any(k in text.lower() for k in ("gem","cave","danger")):
+            w.player.quests["clear_cave"] = "started"
+            npc.memory.append("Mentioned rumors of a gem in the cave.")
+            return npc_reply_claude(npc, text, w) + "\n\n" + colorize_quest("(New quest started: Clear the Cave - Find the shimmering gem)")
+        
+        # Forge key quest
+        elif "ancient_scroll" in w.player.inventory and w.player.quests.get("forge_key") == "not_started" and any(k in text.lower() for k in ("scroll", "runes", "forge", "key")):
+            w.player.inventory.remove("ancient_scroll")
+            w.player.inventory.append("master_key") 
+            w.player.quests["forge_key"] = "completed"
+            w.player.quests["final_treasure"] = "started"
+            npc.memory.append("Forged master key from ancient scroll for player.")
+            auto_save(w, "quest_forge_key")
+            return "The blacksmith studies the ancient runes carefully. 'Aye, I know these symbols! This speaks of a master key.' He works for hours at his forge, creating an ornate key that hums with power. \n\n" + colorize_success("(Quest completed: Forge the Key)") + "\n" + colorize_quest("(New quest started: Claim the Ancient Treasure - Use the key on the sealed tower!)")
+
+    # Quest interactions with healer
+    elif npc_key == "healer":
+        # Healing service
+        if any(k in text.lower() for k in ("heal", "help", "hurt", "wounded", "hp", "health", "potion")):
+            if w.player.hp >= w.player.max_hp:
+                return npc_reply_claude(npc, text, w) + "\n\n" + colorize_npc("'You look perfectly healthy to me, dear.'")
+            elif "magical_amulet" in w.player.inventory or w.player.quests.get("heal_elder") == "completed":
+                # Free healing for healing the Elder
+                w.player.hp = w.player.max_hp
+                npc.memory.append("Healed the player for free as thanks for saving Elder Theron.")
+                update_relationship(npc, 3, "grateful for saving the Elder")
+                return npc_reply_claude(npc, text, w) + f"\n\n" + colorize_success("'You saved Elder Theron! This healing is my gift to you.' Mira's magic flows through you, restoring your health!") + f"\n" + colorize_item(f"(Fully healed - FREE for saving the Elder! HP: {w.player.hp}/{w.player.max_hp})")
+            elif w.player.gold >= 5:
+                w.player.gold -= 5
+                w.player.hp = w.player.max_hp
+                npc.memory.append("Healed the player for 5 gold.")
+                return npc_reply_claude(npc, text, w) + f"\n\n" + colorize_success("'Let me tend to those wounds.' Mira's magic flows through you, restoring your health!") + f"\n" + colorize_item(f"(Fully healed for 5 gold. HP: {w.player.hp}/{w.player.max_hp})")
+            else:
+                return npc_reply_claude(npc, text, w) + "\n\n" + colorize_warning("'I'd love to help, but healing costs 5 gold. Come back when you have enough.'")
+
+    # Quest interactions with elder
+    elif npc_key == "elder":
+        # Heal elder quest
+        if "glimmering_gem" in w.player.inventory and w.player.quests.get("heal_elder") == "not_started":
+            w.player.quests["heal_elder"] = "started"
+            npc.memory.append("Player has the gem that could break the curse.")
+            return npc_reply_claude(npc, text, w) + "\n\n" + colorize_quest("(New quest started: Heal the Elder - The gem might break his curse)")
+        
+        # Give gem to heal elder
+        elif w.player.quests.get("heal_elder") == "started" and "glimmering_gem" in w.player.inventory and any(k in text.lower() for k in ("heal", "gem", "curse", "help")):
+            w.player.inventory.remove("glimmering_gem")
+            w.player.inventory.append("magical_amulet")
+            w.player.max_hp += 5
+            w.player.hp += 5  # also heal current HP
+            w.player.quests["heal_elder"] = "completed"
+            w.player.quests["retrieve_scroll"] = "started"
+            npc.memory.append("Healed by the gem, gave magical amulet to player.")
+            
+            # Quest reward gold
+            w.player.gold += 10
+            
+            # Major relationship boost and emotional transformation
+            update_relationship(npc, 20, "breaking the curse and saving his life")
+            set_emotional_state(npc, "happy", "curse broken, feeling grateful")
+            
+            auto_save(w, "quest_heal_elder")
+            return "Elder Theron's color returns as the gem's power breaks his curse! 'Take this amulet, brave one. Now seek the ancient scroll in the deep ruins beyond the cave.' \n\n" + colorize_success("(Quest completed: Heal the Elder)") + "\n" + colorize_quest("(New quest started: Retrieve the Scroll)") + "\n" + colorize_item("(+5 Max HP from magical amulet!)") + "\n" + colorize_item("(Quest reward: +10 gold!)")
+
+    # Quest interactions with wanderer (Kael)
+    elif npc_key == "wanderer":
+        # Player brings back the trinket
+        if "ancient_trinket" in w.player.inventory and any(k in text.lower() for k in ("trinket", "medallion", "found", "artifact")):
+            w.player.inventory.remove("ancient_trinket")
+            w.player.inventory.append("elder_sword")
+            npc.memory.append("Player returned the ancient trinket.")
+            
+            # Major relationship boost and happiness
+            update_relationship(npc, 25, "returning precious family heirloom")
+            set_emotional_state(npc, "happy", "overjoyed to have family trinket back")
+            
+            # Hidden achievement
+            if "trinket_returner" not in w.player.achievements:
+                w.player.achievements.append("trinket_returner")
+            
+            auto_save(w, "quest_lost_trinket")
+            return "Kael's eyes fill with tears as he takes the trinket. 'You found it! My family's most precious heirloom!' He reaches into his pack and draws out a magnificent sword. 'This Elder Sword has been in my family for centuries. It's yours now - you've earned it a thousand times over.' \n\n" + colorize_success("(Hidden Quest completed: Lost Trinket)") + "\n" + colorize_item("(Received: Elder Sword - A legendary weapon!)")
+        
+        # Wanderer mentions lost trinket
+        elif any(k in text.lower() for k in ("search", "looking", "lost", "find", "trinket", "artifact")):
+            npc.memory.append("Told player about the ancient trinket.")
+            return npc_reply_claude(npc, text, w) + "\n\n" + colorize_npc("'Ah, you understand my plight! I've lost my family's ancient trinket - a small medallion passed down for generations. I fear it may be hidden somewhere in the caves beyond the forest. If you could find it... I would reward you with something truly precious.'")
+
+    # Quest interactions with miner 
+    elif npc_key == "miner":
+        # Miner gives hint about secret chamber
+        if any(k in text.lower() for k in ("cave", "hidden", "secret", "chamber", "passage", "room")):
+            npc.memory.append("Told player about the secret chamber in hidden cave.")
+            update_relationship(npc, 5, "sharing valuable cave knowledge")
+            return npc_reply_claude(npc, text, w) + "\n\n" + colorize_npc("'Aye, I worked them caves for forty years, I did. There's more to that hidden cave than meets the eye - behind some loose rocks on the eastern wall, there's a secret chamber. Most folk don't know about it, but I found it years ago. Might be somethin' valuable in there still.'")
+    
+    return None
 
 # ---------- Engine helpers ----------
 def describe_location(w: World) -> str:
     loc = w.locations[w.player.location]
+    
+    # Check for restored boss monsters (fled from previously)
+    boss_key = w.flags.get(f"{loc.key}_boss_key")
+    boss_hp = w.flags.get(f"{loc.key}_boss_hp")
+    if boss_key and boss_hp and not w.flags.get("in_combat"):
+        # Restore the boss monster with its previous HP
+        if boss_key == "cave_beast":
+            w.monster = Monster(key="cave_beast", name="Cave Beast", hp=boss_hp, attack_min=2, attack_max=5)
+        elif boss_key == "ancient_guardian":
+            w.monster = Monster(key="ancient_guardian", name="Ancient Guardian", hp=boss_hp, attack_min=4, attack_max=8)
+        elif boss_key == "tower_guardian":
+            w.monster = Monster(key="tower_guardian", name="Tower Guardian", hp=boss_hp, attack_min=5, attack_max=9)
+        
+        w.flags["in_combat"] = True
+        # Clear the stored boss data since we've restored it
+        del w.flags[f"{loc.key}_boss_key"]
+        del w.flags[f"{loc.key}_boss_hp"]
+        
+        creature_art = get_creature_art(w.monster.name)
+        return (loc.description + creature_art +
+                f"\nThe {w.monster.name} is still here, wounded but ready to fight! (HP {w.monster.hp})"
+                "\nCommands: attack, defend, flee")
+    
     if not loc.visited:
         if loc.key == "hidden_cave" and not w.flags.get("cave_seeded"):
             # seed gem + start combat
@@ -217,37 +1512,85 @@ def describe_location(w: World) -> str:
             )
             w.flags["in_combat"] = True
             loc.visited = True
-            return (loc.description +
+            creature_art = get_creature_art("Cave Beast")
+            return (loc.description + creature_art + 
                     "\nA Cave Beast lunges from the shadows! You are in combat."
                     "\nCommands: attack, defend, flee")
         elif loc.key == "deep_ruins" and not w.flags.get("ruins_seeded"):
-            # spawn tougher monster in ruins
+            # spawn tougher monster in ruins - need to defeat to get scroll
             w.flags["ruins_seeded"] = True
-            if "broad_sword" not in w.player.inventory:
+            # Check if player has adequate weapon (broad sword or better)
+            has_strong_weapon = ("broad_sword" in w.player.inventory or 
+                               "elder_sword" in w.player.inventory or
+                               any(item for item in w.player.inventory if "sword" in item and item != "rusty_sword"))
+            
+            if not has_strong_weapon:
                 loc.visited = True
                 return (loc.description + 
                         "\nAn Ancient Guardian blocks your path to the scroll! Its stone armor looks impervious to weak weapons. You need a stronger blade to face this foe."
                         "\nYou retreat wisely.")
+            
+            # Only allow scroll access after defeating guardian
+            if not w.flags.get("guardian_defeated"):
+                w.monster = Monster(
+                    key="ancient_guardian",
+                    name="Ancient Guardian",
+                    hp=35,             # much tougher - needs broad sword
+                    attack_min=4,
+                    attack_max=8
+                )
+                w.flags["in_combat"] = True
+                loc.visited = True
+                creature_art = get_creature_art("Ancient Guardian")
+                return (loc.description + creature_art +
+                        "\nAn Ancient Guardian awakens from its slumber! Your weapon gleams as it senses the worthy foe. You are in combat."
+                        "\nCommands: attack, defend, flee")
+            else:
+                # Guardian defeated, can access scroll
+                if "ancient_scroll" not in loc.items:
+                    loc.items.append("ancient_scroll")
+        elif loc.key == "iron_mine" and not w.flags.get("mine_seeded") and not w.flags.get("in_combat"):
+            # Spawn weak mine rat on first entry - beatable while unarmed
+            w.flags["mine_seeded"] = True
             w.monster = Monster(
-                key="ancient_guardian",
-                name="Ancient Guardian",
-                hp=35,             # much tougher - needs broad sword
-                attack_min=4,
-                attack_max=8
+                key="mine_rat",
+                name="Mine Rat",
+                hp=8,              # very weak - beatable unarmed
+                attack_min=1,      # minimal damage
+                attack_max=2       # minimal damage
             )
             w.flags["in_combat"] = True
             loc.visited = True
-            return (loc.description +
-                    "\nAn Ancient Guardian awakens from its slumber! Your broad sword gleams as it senses the worthy foe. You are in combat."
+            creature_art = get_creature_art("Mine Rat")
+            return (loc.description + creature_art +
+                    "\nA large mine rat scurries out from behind the ore pile! You are in combat."
                     "\nCommands: attack, defend, flee")
+        elif loc.key == "deep_ruins" and w.flags.get("guardian_defeated"):
+            # Add scroll if guardian was defeated but location was visited before
+            if "ancient_scroll" not in loc.items:
+                loc.items.append("ancient_scroll")
         loc.visited = True
 
-    lines = [loc.description]
-    if loc.exits: lines.append("Exits: " + ", ".join(e.replace("_"," ") for e in loc.exits))
-    if loc.npcs: lines.append("You see: " + ", ".join(w.npcs[n].name for n in loc.npcs))
-    if loc.items: lines.append("On the ground: " + ", ".join(loc.items))
+    # Add ASCII art header
+    art = get_location_art(loc.key)
+    lines = []
+    if art:
+        lines.append(colorize_location(art))
+        lines.append("")  # Empty line for spacing
+    
+    lines.append(colorize_location(loc.description))
+    if loc.exits: 
+        exit_names = [colorize_location(e.replace("_"," ")) for e in loc.exits]
+        lines.append("Exits: " + ", ".join(exit_names))
+    if loc.npcs: 
+        npc_names = [colorize_npc(w.npcs[n].name) for n in loc.npcs]
+        lines.append("You see: " + ", ".join(npc_names))
+    if loc.items: 
+        item_names = [colorize_item(item.replace("_"," ")) for item in loc.items]
+        lines.append("On the ground: " + ", ".join(item_names))
     if w.flags.get("in_combat"):
-        lines.append(f"🗡 In combat with {w.monster.name}! (HP {w.monster.hp})")
+        combat_text = f"🗡 In combat with {colorize_combat(w.monster.name)}! (HP {w.monster.hp})"
+        lines.append(combat_text)
     return "\n".join(lines)
 
 def move_player(w: World, dest_key: str) -> str:
@@ -257,16 +1600,120 @@ def move_player(w: World, dest_key: str) -> str:
     if dest_key not in cur.exits:
         return "You can't go that way."
     
-    # Special case: sealed tower requires master key
+    # Special case: sealed tower requires master key and final boss fight
     if dest_key == "sealed_tower":
         if "master_key" not in w.player.inventory:
             return "The tower door is sealed with arcane locks. You need a special key to enter."
         elif w.player.quests.get("final_treasure") == "started":
-            w.player.quests["final_treasure"] = "completed"
-            return "The master key glows as you approach! The seals dissolve and the tower door swings open. Inside, you find an ancient treasure vault filled with gold and magical artifacts! You have completed your hero's journey! THE END."
+            # Enter the tower but face the final boss
+            if not w.flags.get("final_boss_defeated"):
+                # Spawn final boss
+                w.monster = Monster(
+                    key="tower_guardian",
+                    name="Tower Guardian",
+                    hp=45,  # Slightly reduced HP
+                    attack_min=5,  # Reduced from 6
+                    attack_max=9   # Reduced from 12
+                )
+                w.flags["in_combat"] = True
+                w.flags["in_final_battle"] = True
+                creature_art = get_creature_art("Tower Guardian")
+                return ("The master key glows as you approach! The seals dissolve and the tower door swings open.\n" +
+                        "Inside the treasure vault, a massive Tower Guardian awakens to protect the ancient treasures!" + 
+                        creature_art +
+                        "\nThe final battle begins! You are in combat.\n" +
+                        "Commands: attack, defend, flee")
+            else:
+                # Boss already defeated, complete the game
+                w.player.quests["final_treasure"] = "completed" 
+                auto_save(w, "quest_final_treasure")
+                w.flags["game_completed"] = True
+                return "With the Tower Guardian defeated, you claim the ancient treasure vault filled with gold and magical artifacts! You have completed your hero's journey!\n\n" + colorize_success("🏆 CONGRATULATIONS! YOU HAVE COMPLETED THE GAME! 🏆")
     
+    # Update location history
+    w.player.previous_location = w.player.location
     w.player.location = dest_key
-    return describe_location(w)
+    
+    # Track explored areas
+    if dest_key not in w.player.explored_areas:
+        w.player.explored_areas.append(dest_key)
+    
+    # Random encounters in various locations
+    if not w.flags.get("in_combat"):
+        import random
+        encounter_chance = random.randint(1, 100)
+        
+        # Forest path encounters (20% chance)
+        if dest_key == "forest_path" and encounter_chance <= 20:
+            w.monster = Monster(
+                key="forest_wolf",
+                name="Forest Wolf",
+                hp=12,             
+                attack_min=2,      
+                attack_max=4       
+            )
+            w.flags["in_combat"] = True
+            creature_art = get_creature_art("Forest Wolf")
+            return ("You enter the forest path..." + creature_art +
+                    "\nA hungry forest wolf prowls out from behind the trees! You are in combat."
+                    "\nCommands: attack, defend, flee")
+        
+        # Hidden cave encounters (15% chance) - only after Cave Beast defeated
+        elif dest_key == "hidden_cave" and w.flags.get("cave_seeded") and encounter_chance <= 15:
+            w.monster = Monster(
+                key="cave_spider",
+                name="Cave Spider",
+                hp=10,
+                attack_min=1,
+                attack_max=3
+            )
+            w.flags["in_combat"] = True
+            creature_art = get_creature_art("Cave Spider")
+            return ("You enter the cave..." + creature_art +
+                    "\nA cave spider drops from the ceiling! You are in combat."
+                    "\nCommands: attack, defend, flee")
+        
+        # Iron mine encounters (15% chance) - only after Mine Rat defeated
+        elif dest_key == "iron_mine" and w.flags.get("mine_seeded") and encounter_chance <= 15:
+            w.monster = Monster(
+                key="mine_bat",
+                name="Mine Bat",
+                hp=8,
+                attack_min=1,
+                attack_max=2
+            )
+            w.flags["in_combat"] = True
+            creature_art = get_creature_art("Mine Bat")
+            return ("You enter the mine..." + creature_art +
+                    "\nA mine bat swoops down from the shadows! You are in combat."
+                    "\nCommands: attack, defend, flee")
+        
+        # Deep ruins encounters (10% chance) - only after Ancient Guardian defeated
+        elif dest_key == "deep_ruins" and w.flags.get("guardian_defeated") and encounter_chance <= 10:
+            w.monster = Monster(
+                key="stone_imp",
+                name="Stone Imp",
+                hp=15,
+                attack_min=2,
+                attack_max=5
+            )
+            w.flags["in_combat"] = True
+            creature_art = get_creature_art("Stone Imp")
+            return ("You enter the ruins..." + creature_art +
+                    "\nA stone imp emerges from the rubble! You are in combat."
+                    "\nCommands: attack, defend, flee")
+    
+    # Check for new achievements
+    new_achievements = check_achievements(w)
+    achievement_notifications = ""
+    for achievement in new_achievements:
+        achievement_notifications += show_achievement_notification(achievement)
+    
+    result = describe_location(w)
+    if achievement_notifications:
+        result += achievement_notifications
+    
+    return result
 
 def take_item(w: World, item: str) -> str:
     if w.flags.get("in_combat"):
@@ -275,15 +1722,22 @@ def take_item(w: World, item: str) -> str:
     if item not in loc.items: return f"You don't see a '{item}' here."
     loc.items.remove(item)
     w.player.inventory.append(item)
+    # Special item handling with ASCII art
+    item_art = get_item_art(item)
+    
     if item == "glimmering_gem" and w.player.quests.get("clear_cave") != "completed":
         w.player.quests["clear_cave"] = "completed"
-        return f"You take the {item}. The gem pulses with mysterious energy. Perhaps Elder Theron knows its purpose."
+        auto_save(w, "quest_clear_cave")
+        return f"You take the {item}. The gem pulses with mysterious energy. Perhaps Elder Theron knows its purpose.{item_art}"
     if item == "iron_ore" and w.player.quests.get("prove_worth") != "completed":
         w.player.quests["prove_worth"] = "completed"
-        return f"You take the {item}. This should prove your worth to the blacksmith."
+        auto_save(w, "item_iron_ore")
+        return f"You take the {item}. This should prove your worth to the blacksmith.{item_art}"
     if item == "ancient_scroll" and w.player.quests.get("retrieve_scroll") != "completed":
         w.player.quests["retrieve_scroll"] = "completed"
-        return f"You take the {item}. Ancient runes cover its surface - the blacksmith might understand these."
+        w.player.gold += 8
+        auto_save(w, "quest_retrieve_scroll")
+        return f"You take the {item}. Ancient runes cover its surface - the blacksmith might understand these.{item_art}" + "\n" + colorize_success("(Quest completed: Retrieve the Scroll)") + "\n" + colorize_item("(Quest reward: +8 gold!)")
     return f"You take the {item}."
 
 def drop_item(w: World, item: str) -> str:
@@ -295,14 +1749,32 @@ def drop_item(w: World, item: str) -> str:
     return f"You drop the {item}."
 
 def inventory(w: World) -> str:
-    inv = ", ".join(w.player.inventory) if w.player.inventory else "nothing"
-    return f"You are carrying: {inv}\nGold: {w.player.gold}"
+    return show_enhanced_inventory(w)
 
 def stats(w: World) -> str:
-    return f"HP: {w.player.hp}/{w.player.max_hp}" + (f" | Foe: {w.monster.name} HP {w.monster.hp}" if w.flags.get("in_combat") else "")
+    player_stats = get_player_stats(w)
+    hp_color = Fore.GREEN if w.player.hp > w.player.max_hp * 0.5 else Fore.YELLOW if w.player.hp > w.player.max_hp * 0.2 else Fore.RED
+    hp_text = f"{hp_color}{w.player.hp}/{player_stats['max_hp']}{Style.RESET_ALL}"
+    
+    result = [
+        colorize_command("📊 PLAYER STATS"),
+        f"HP: {hp_text}",
+        f"Attack: {colorize_combat(str(player_stats['attack']))}",
+        f"Defense: {colorize_success(str(player_stats['defense']))}",
+        f"Gold: {colorize_item(str(w.player.gold))}"
+    ]
+    
+    if player_stats['hp_regen'] > 0:
+        result.append(f"HP Regen: {colorize_success(str(player_stats['hp_regen']))}")
+    
+    if w.flags.get("in_combat"):
+        foe_text = colorize_combat(f"{w.monster.name} HP {w.monster.hp}")
+        result.append(f"Foe: {foe_text}")
+    
+    return "\n".join(result)
 
 def quests(w: World) -> str:
-    lines = ["Quest Status:"]
+    lines = [colorize_quest("Quest Status:")]
     quest_names = {
         "prove_worth": "1. Prove Your Worth (Get iron ore, forge broad sword)",
         "clear_cave": "2. Clear the Cave (Defeat Cave Beast, get gem)", 
@@ -310,16 +1782,292 @@ def quests(w: World) -> str:
         "retrieve_scroll": "4. Retrieve the Scroll (Need broad sword for Ancient Guardian)",
         "forge_key": "5. Forge the Key (Trade scroll for master key)",
         "final_treasure": "6. Claim the Ancient Treasure (Use key on sealed tower)"
+        # lost_trinket quest is hidden - not shown in main quest list
     }
     for quest_key, quest_name in quest_names.items():
         status = w.player.quests.get(quest_key, "not_started")
         if status == "completed":
-            lines.append(f"  ✓ {quest_name}")
+            lines.append(f"  {colorize_success('✓')} {quest_name}")
         elif status == "started":
-            lines.append(f"  → {quest_name} (Active)")
+            lines.append(f"  {colorize_quest('→')} {colorize_quest(quest_name + ' (Active)')}")
         else:
             lines.append(f"  - {quest_name}")
     return "\n".join(lines)
+
+# ---------- Save/Load System ----------
+def world_to_dict(w: World) -> dict:
+    """Convert World object to dictionary for JSON serialization"""
+    return {
+        "player": asdict(w.player),
+        "locations": {k: asdict(v) for k, v in w.locations.items()},
+        "npcs": {k: asdict(v) for k, v in w.npcs.items()},
+        "flags": w.flags,
+        "monster": asdict(w.monster) if w.monster else None,
+        "save_time": datetime.now().isoformat()
+    }
+
+def dict_to_world(data: dict) -> World:
+    """Convert dictionary back to World object"""
+    # Reconstruct locations
+    locations = {}
+    for key, loc_data in data["locations"].items():
+        locations[key] = Location(**loc_data)
+    
+    # Reconstruct NPCs
+    npcs = {}
+    for key, npc_data in data["npcs"].items():
+        npcs[key] = NPC(**npc_data)
+    
+    # Reconstruct player with equipment compatibility
+    player_data = data["player"].copy()
+    
+    # Handle equipment compatibility - old saves had dict, new saves have Equipment object
+    if "equipment" in player_data:
+        equipment_data = player_data["equipment"]
+        if isinstance(equipment_data, dict):
+            # Old save format - convert dict to Equipment object
+            if "weapon" in equipment_data or "armor" in equipment_data or "accessory" in equipment_data:
+                # New dict format with keys
+                from dataclasses import fields
+                equipment_fields = {f.name for f in fields(Equipment)}
+                equipment_kwargs = {k: v for k, v in equipment_data.items() if k in equipment_fields}
+                player_data["equipment"] = Equipment(**equipment_kwargs)
+            else:
+                # Very old format or empty - create default Equipment
+                player_data["equipment"] = Equipment()
+        # If it's already an Equipment object, leave it as is
+    else:
+        # No equipment field - create default
+        player_data["equipment"] = Equipment()
+    
+    player = Player(**player_data)
+    
+    # Reconstruct monster if exists
+    monster = Monster(**data["monster"]) if data["monster"] else None
+    
+    return World(
+        player=player,
+        locations=locations,
+        npcs=npcs,
+        flags=data.get("flags", {}),
+        monster=monster
+    )
+
+def save_game(w: World, save_name: str = "quicksave") -> str:
+    """Save world state to JSON file"""
+    try:
+        # Create saves directory if it doesn't exist
+        saves_dir = Path("saves")
+        saves_dir.mkdir(exist_ok=True)
+        
+        # Save to file
+        save_path = saves_dir / f"{save_name}.json"
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(world_to_dict(w), f, indent=2)
+        
+        return colorize_success(f"Game saved to {save_path}")
+    except Exception as e:
+        return colorize_error(f"Failed to save game: {e}")
+
+def auto_save(w: World, event_type: str = "auto") -> None:
+    """Auto-save game state silently"""
+    try:
+        saves_dir = Path("saves")
+        saves_dir.mkdir(exist_ok=True)
+        save_path = saves_dir / f"autosave_{event_type}.json"
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(world_to_dict(w), f, indent=2)
+    except Exception:
+        pass  # Silent auto-save failure
+
+def load_world(save_name: str) -> World:
+    """Load world state from JSON file. Returns World or None if failed"""
+    try:
+        save_path = Path("saves") / f"{save_name}.json"
+        if not save_path.exists():
+            return None
+        
+        with open(save_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        return dict_to_world(data)
+    except Exception:
+        return None
+
+def load_game(save_name: str = "quicksave") -> tuple[World, str]:
+    """Load world state from JSON file. Returns (world, message)"""
+    try:
+        save_path = Path("saves") / f"{save_name}.json"
+        if not save_path.exists():
+            return None, colorize_error(f"Save file '{save_name}' not found.")
+        
+        with open(save_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        world = dict_to_world(data)
+        save_time = data.get("save_time", "unknown time")
+        return world, colorize_success(f"Game loaded from {save_path} (saved: {save_time[:19]})")
+    except Exception as e:
+        return None, colorize_error(f"Failed to load game: {e}")
+
+def list_saves() -> str:
+    """List available save files"""
+    saves_dir = Path("saves")
+    if not saves_dir.exists():
+        return "No saves directory found."
+    
+    save_files = list(saves_dir.glob("*.json"))
+    if not save_files:
+        return "No save files found."
+    
+    lines = ["Available saves:"]
+    for save_file in sorted(save_files):
+        save_name = save_file.stem
+        try:
+            with open(save_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            save_time = data.get("save_time", "unknown")[:19]
+            lines.append(f"  {save_name} (saved: {save_time})")
+        except:
+            lines.append(f"  {save_name} (corrupted)")
+    return "\n".join(lines)
+
+# ---------- Context Menu System ----------
+def generate_context_menu(w: World) -> list[str]:
+    """Generate context-sensitive menu options based on current game state"""
+    options = []
+    loc = w.locations[w.player.location]
+    
+    # Combat has priority
+    if w.flags.get("in_combat"):
+        options.extend([
+            colorize_combat("Attack"),
+            colorize_combat("Defend"), 
+            colorize_combat("Flee")
+        ])
+        return options
+    
+    # Always available options
+    options.extend([
+        colorize_location("Look around"),
+        colorize_command("Check inventory"),
+        colorize_quest("View quests")
+    ])
+    
+    # Movement options
+    if loc.exits:
+        for exit in loc.exits[:3]:  # Limit to first 3 exits to keep menu manageable
+            exit_name = exit.replace("_", " ").title()
+            options.append(colorize_location(f"Go to {exit_name}"))
+    
+    # NPCs
+    if loc.npcs:
+        for npc_key in loc.npcs:
+            npc_name = w.npcs[npc_key].name
+            options.append(colorize_npc(f"Talk to {npc_name}"))
+    
+    # Items to take
+    if loc.items:
+        for item in loc.items[:2]:  # Limit to first 2 items
+            item_name = item.replace("_", " ").title()
+            options.append(colorize_item(f"Take {item_name}"))
+    
+    # Special location-based options
+    if loc.key == "blacksmith_shop":
+        options.append(colorize_command("Browse shop"))
+    
+    if w.player.hp < w.player.max_hp and "healer" in loc.npcs:
+        options.append(colorize_success("Get healing"))
+    
+    # Map and achievements (only show if player has explored areas)
+    if w.player.explored_areas:
+        options.append(colorize_command("View map"))
+    options.append(colorize_command("View achievements"))
+    options.append(colorize_command("View relationships"))
+    
+    # Save option
+    options.append(colorize_command("Save game"))
+    
+    return options
+
+def display_context_menu(w: World) -> str:
+    """Display numbered context menu"""
+    options = generate_context_menu(w)
+    lines = [colorize_command("Quick Actions:")]
+    
+    for i, option in enumerate(options, 1):
+        lines.append(f"  {colorize_command(str(i))}. {option}")
+    
+    lines.append(colorize_command("Or type any command directly..."))
+    return "\n".join(lines)
+
+def parse_menu_selection(w: World, selection: str) -> str:
+    """Convert menu number selection to actual command"""
+    try:
+        num = int(selection.strip())
+        options = generate_context_menu(w)
+        
+        if 1 <= num <= len(options):
+            option = options[num - 1]
+            # Extract the action from the colored text
+            # This is a bit hacky but works for our menu structure
+            if "Look around" in option:
+                return "look"
+            elif "Check inventory" in option:
+                return "inventory"
+            elif "View quests" in option:
+                return "quests"
+            elif "Go to" in option:
+                # Extract location name
+                location = option.split("Go to ")[-1].replace("\x1b[0m", "").lower().replace(" ", "_")
+                # Remove any remaining ANSI codes
+                import re
+                location = re.sub(r'\x1b\[[0-9;]*m', '', location)
+                return f"go {location}"
+            elif "Talk to" in option:
+                # Extract NPC display name and map to key
+                display_name = option.split("Talk to ")[-1].replace("\x1b[0m", "")
+                # Remove ANSI codes 
+                import re
+                display_name = re.sub(r'\x1b\[[0-9;]*m', '', display_name).strip()
+                
+                # Map display names to NPC keys
+                name_to_key = {
+                    "Rogan the Blacksmith": "blacksmith",
+                    "Elder Theron": "elder", 
+                    "Mira the Healer": "healer",
+                    "Kael the Wanderer": "wanderer",
+                    "Old Gareth the Miner": "miner"
+                }
+                npc_key = name_to_key.get(display_name, display_name.lower().split()[0])
+                return f"talk to {npc_key}"
+            elif "Take" in option:
+                item_name = option.split("Take ")[-1].replace("\x1b[0m", "").lower().replace(" ", "_")
+                import re
+                item_name = re.sub(r'\x1b\[[0-9;]*m', '', item_name)
+                return f"take {item_name}"
+            elif "Browse shop" in option:
+                return "shop"
+            elif "Get healing" in option:
+                return "talk to healer heal me"
+            elif "View map" in option:
+                return "map"
+            elif "View achievements" in option:
+                return "achievements"
+            elif "View relationships" in option:
+                return "relationships"
+            elif "Save game" in option:
+                return "save"
+            elif "Attack" in option:
+                return "attack"
+            elif "Defend" in option:
+                return "defend"  
+            elif "Flee" in option:
+                return "flee"
+        
+        return f"Invalid selection: {num}"
+    except ValueError:
+        return None  # Not a number, treat as regular command
 
 # ---------- Shop ----------
 def show_shop(w: World) -> str:
@@ -354,12 +2102,11 @@ def buy_item(w: World, npc_key: str, item: str) -> str:
 
 # ---------- Combat ----------
 def player_attack_damage(w: World) -> int:
-    base = random.randint(2, 4)  # adjust to tune player damage
-    if "broad_sword" in w.player.inventory:
-        base += 8                 # broad sword gives much bigger bonus
-    elif "rusty_sword" in w.player.inventory:
-        base += 2                 # rusty sword gives smaller bonus
-    return base
+    stats = get_player_stats(w)
+    base_damage = stats["attack"]
+    # Add some randomness (±25% of base damage)
+    variance = max(1, base_damage // 4)
+    return random.randint(base_damage - variance, base_damage + variance)
 
 def monster_attack_damage(mon: Monster) -> int:
     return random.randint(mon.attack_min, mon.attack_max)
@@ -369,30 +2116,88 @@ def do_attack(w: World) -> str:
     mon = w.monster
     dmg = player_attack_damage(w)
     mon.hp -= dmg
-    lines = [f"You strike the {mon.name} for {dmg} damage. (Foe HP {max(mon.hp,0)})"]
+    attack_text = f"You strike the {colorize_combat(mon.name)} for {colorize_combat(str(dmg))} damage. (Foe HP {max(mon.hp,0)})"
+    lines = [attack_text]
     if mon.hp <= 0:
         w.flags["in_combat"] = False
         w.monster = None
-        lines.append(f"The {mon.name} collapses. You are victorious!")
+        victory_text = colorize_success(f"The {mon.name} collapses. You are victorious!")
+        lines.append(victory_text)
+        
+        # Gold drops from monsters
+        gold_reward = 0
+        if mon.key == "cave_beast":
+            gold_reward = 12
+        elif mon.key == "ancient_guardian":
+            gold_reward = 15
+        elif mon.key == "tower_guardian":
+            gold_reward = 25
+        elif mon.key == "mine_rat":
+            gold_reward = 3
+        elif mon.key == "forest_wolf":
+            gold_reward = 4
+        elif mon.key == "cave_spider":
+            gold_reward = 3
+        elif mon.key == "mine_bat":
+            gold_reward = 2
+        elif mon.key == "stone_imp":
+            gold_reward = 5
+        
+        if gold_reward > 0:
+            w.player.gold += gold_reward
+            lines.append(colorize_item(f"You find {gold_reward} gold on the {mon.name}!"))
+        
+        # Special victory logic for Ancient Guardian
+        if mon.key == "ancient_guardian":
+            w.flags["guardian_defeated"] = True
+            # Immediately add the ancient scroll to the current location
+            current_location = w.locations[w.player.location]
+            if "ancient_scroll" not in current_location.items:
+                current_location.items.append("ancient_scroll")
+            lines.append(colorize_quest("The path to the ancient scroll is now clear!"))
+            lines.append(colorize_item("You see an ancient scroll among the ruins!"))
+        
+        # Special victory logic for final boss
+        elif mon.key == "tower_guardian":
+            w.flags["final_boss_defeated"] = True
+            w.flags["game_completed"] = True
+            w.player.quests["final_treasure"] = "completed"
+            lines.append(colorize_success("🏆 The Tower Guardian falls! You have completed your hero's journey! 🏆"))
+            lines.append(colorize_quest("You claim the ancient treasure vault filled with gold and magical artifacts!"))
+            auto_save(w, "quest_final_treasure")
+        
+        # Check warrior achievement for first combat win
+        if "warrior" not in w.player.achievements:
+            w.player.achievements.append("warrior")
+            lines.append(show_achievement_notification("warrior"))
+        
         return "\n".join(lines)
     # monster turn
-    mdmg = monster_attack_damage(mon)
+    raw_damage = monster_attack_damage(mon)
+    stats = get_player_stats(w)
+    mdmg = max(1, raw_damage - stats["defense"])  # defense reduces damage, minimum 1
     w.player.hp -= mdmg
-    lines.append(f"The {mon.name} hits you for {mdmg}. (Your HP {max(w.player.hp,0)})")
+    damage_text = f"The {colorize_combat(mon.name)} hits you for {colorize_combat(str(mdmg))}. (Your HP {max(w.player.hp,0)})"
+    lines.append(damage_text)
     if w.player.hp <= 0:
-        lines.append("You fall to the ground. Darkness closes in. GAME OVER.")
+        game_over_text = colorize_error("You fall to the ground. Darkness closes in.")
+        lines.append(game_over_text)
         w.flags["in_combat"] = False
+        w.flags["game_over"] = True
     return "\n".join(lines)
 
 def do_defend(w: World) -> str:
     if not w.flags.get("in_combat"): return "You're not in combat."
     mon = w.monster
-    mdmg = max(0, monster_attack_damage(mon) - 2)  # defending reduces damage by 2 (tune here)
+    stats = get_player_stats(w)
+    defense_bonus = stats["defense"] + 2  # defending gives +2 defense bonus
+    mdmg = max(0, monster_attack_damage(mon) - defense_bonus)
     w.player.hp -= mdmg
     out = f"You brace yourself and reduce the blow. You take {mdmg}. (Your HP {max(w.player.hp,0)})"
     if w.player.hp <= 0:
-        out += "\nYou collapse. GAME OVER."
+        out += "\nYou collapse."
         w.flags["in_combat"] = False
+        w.flags["game_over"] = True
     return out
 
 def do_flee(w: World) -> str:
@@ -400,17 +2205,29 @@ def do_flee(w: World) -> str:
     # 60% success to flee to forest_path
     if random.random() < 0.6:
         w.flags["in_combat"] = False
+        current_location = w.player.location
+        
+        # Store boss monsters back in their locations so they persist
+        if w.monster and w.monster.key in ["cave_beast", "ancient_guardian", "tower_guardian"]:
+            # Store the monster state in flags for boss monsters
+            w.flags[f"{current_location}_boss_hp"] = w.monster.hp
+            w.flags[f"{current_location}_boss_key"] = w.monster.key
+        
+        # Clear current monster (random encounters can be lost)
         w.monster = None
         w.player.location = "forest_path"
         return "You sprint for the exit and escape to the forest path!\n" + describe_location(w)
     # fail: take a hit
     mon = w.monster
-    mdmg = monster_attack_damage(mon)
+    raw_damage = monster_attack_damage(mon)
+    stats = get_player_stats(w)
+    mdmg = max(1, raw_damage - stats["defense"])  # apply defense
     w.player.hp -= mdmg
     out = f"You try to flee but stumble! The {mon.name} hits you for {mdmg}. (Your HP {max(w.player.hp,0)})"
     if w.player.hp <= 0:
-        out += "\nYou collapse. GAME OVER."
+        out += "\nYou collapse."
         w.flags["in_combat"] = False
+        w.flags["game_over"] = True
     return out
 
 # ---------- Claude NPC ----------
@@ -446,14 +2263,59 @@ def npc_reply_claude(npc: NPC, player_text: str, w: World) -> str:
     except Exception:
         return f"{npc.name} frowns. 'Can't talk right now.'"
 
-def talk_to(w: World, npc_key: str, text: str) -> str:
-    if w.flags.get("in_combat"):
-        return "No time to chat—you're in a fight!"
-    loc = w.locations[w.player.location]
-    if npc_key not in loc.npcs: return f"There's no one named '{npc_key}' here."
+# ---------- Parser ----------
     npc = w.npcs[npc_key]
+    
+    # Track conversation and relationship
     npc.memory.append(f"Player said: {text.strip()} at {w.player.location}")
+    relationship_messages = []
+    
+    # Basic relationship gain for talking (+1 point)
+    relationship_messages.extend(update_relationship(npc, 1, "friendly conversation"))
+    
+    # Track conversation topics
+    words = text.lower().split()
+    for word in words:
+        if len(word) > 3:  # Only track meaningful words
+            track_conversation_topic(npc, word)
+    
+    # CHECK QUEST INTERACTIONS FIRST - before AI response
+    # Quest interactions with wanderer
+    if npc_key == "wanderer":
+        # Player brings back the trinket
+        if "ancient_trinket" in w.player.inventory and any(k in text.lower() for k in ("trinket", "medallion", "found", "artifact")):
+            w.player.inventory.remove("ancient_trinket")
+            w.player.inventory.append("elder_sword")
+            w.player.quests["lost_trinket"] = "completed"
+            npc.memory.append("Player returned the ancient trinket.")
+            
+            # Major relationship boost and happiness
+            quest_messages = update_relationship(npc, 25, "returning precious family heirloom")
+            set_emotional_state(npc, "happy", "overjoyed to have family trinket back")
+            
+            # Hidden achievement
+            if "trinket_returner" not in w.player.achievements:
+                w.player.achievements.append("trinket_returner")
+            
+            auto_save(w, "quest_lost_trinket")
+            result = "Kael's eyes fill with tears as he takes the trinket. 'You found it! My family's most precious heirloom!' He reaches into his pack and draws out a magnificent sword. 'This Elder Sword has been in my family for centuries. It's yours now - you've earned it a thousand times over.' \n(Quest completed: Lost Trinket) \n(Received: Elder Sword - A legendary weapon!)"
+            return result + "".join(quest_messages)
+    
+    # Get enhanced NPC response with context
     out = npc_reply_claude(npc, text, w)
+    
+    # Add relationship and emotional context
+    relationship_context = get_relationship_modifier(npc)
+    emotional_context = get_emotional_context(npc)
+    emotional_indicator = set_emotional_state(npc, npc.emotional_state)  # Keep current or update
+    
+    # Enhance the output with context
+    if relationship_context or emotional_context:
+        out += relationship_context + emotional_context
+    
+    # Add relationship level up messages
+    if relationship_messages:
+        out += "".join(relationship_messages)
     
     # Quest interactions with blacksmith
     if npc_key == "blacksmith":
@@ -463,7 +2325,14 @@ def talk_to(w: World, npc_key: str, text: str) -> str:
             w.player.inventory.append("broad_sword")
             w.player.quests["prove_worth"] = "completed"
             npc.memory.append("Forged broad sword from iron ore for player.")
-            return "The blacksmith's eyes light up as he examines the ore. 'Fine quality iron! Let me forge you a proper weapon.' He works the metal with expert skill, creating a gleaming broad sword. \n(Quest completed: Prove Your Worth) \n(Received: Broad Sword - A superior weapon!)"
+            
+            # Major relationship boost and excitement
+            quest_messages = update_relationship(npc, 15, "completing prove worth quest")
+            set_emotional_state(npc, "excited", "impressed with player's dedication")
+            
+            auto_save(w, "quest_prove_worth")
+            result = "The blacksmith's eyes light up as he examines the ore. 'Fine quality iron! Let me forge you a proper weapon.' He works the metal with expert skill, creating a gleaming broad sword. \n(Quest completed: Prove Your Worth) \n(Received: Broad Sword - A superior weapon!)"
+            return result + "".join(quest_messages)
         # Start first quest
         elif w.player.quests.get("prove_worth") == "not_started" and any(k in text.lower() for k in ("work", "help", "sword", "weapon")):
             w.player.quests["prove_worth"] = "started"
@@ -481,6 +2350,7 @@ def talk_to(w: World, npc_key: str, text: str) -> str:
             w.player.quests["forge_key"] = "completed"
             w.player.quests["final_treasure"] = "started"
             npc.memory.append("Forged master key from ancient scroll for player.")
+            auto_save(w, "quest_forge_key")
             return "The blacksmith studies the ancient runes carefully. 'Aye, I know these symbols! This speaks of a master key.' He works for hours at his forge, creating an ornate key that hums with power. \n(Quest completed: Forge the Key) \n(New quest started: Claim the Ancient Treasure - Use the key on the sealed tower!)"
     
     # Quest interactions with healer
@@ -513,7 +2383,45 @@ def talk_to(w: World, npc_key: str, text: str) -> str:
             w.player.quests["heal_elder"] = "completed"
             w.player.quests["retrieve_scroll"] = "started"
             npc.memory.append("Healed by the gem, gave magical amulet to player.")
-            return "Elder Theron's color returns as the gem's power breaks his curse! 'Take this amulet, brave one. Now seek the ancient scroll in the deep ruins beyond the cave.' \n(Quest completed: Heal the Elder) \n(New quest started: Retrieve the Scroll) \n(+5 Max HP from magical amulet!)"
+            
+            # Major relationship boost and emotional transformation
+            quest_messages = update_relationship(npc, 20, "breaking the curse and saving his life")
+            set_emotional_state(npc, "happy", "curse broken, feeling grateful")
+            
+            auto_save(w, "quest_heal_elder")
+            result = "Elder Theron's color returns as the gem's power breaks his curse! 'Take this amulet, brave one. Now seek the ancient scroll in the deep ruins beyond the cave.' \n(Quest completed: Heal the Elder) \n(New quest started: Retrieve the Scroll) \n(+5 Max HP from magical amulet!)"
+            return result + "".join(quest_messages)
+    
+    # Quest interactions with wanderer
+    elif npc_key == "wanderer":
+        # Wanderer mentions lost trinket
+        if any(k in text.lower() for k in ("search", "looking", "lost", "find", "trinket", "artifact")):
+            w.player.quests["lost_trinket"] = w.player.quests.get("lost_trinket", "started")
+            npc.memory.append("Told player about the ancient trinket.")
+            return out + "\n'Ah, you understand my plight! I've lost my family's ancient trinket - a small medallion passed down for generations. I fear it may be hidden somewhere in the caves beyond the forest. If you could find it... I would reward you with something truly precious.'"
+        
+        # Player brings back the trinket
+        elif "ancient_trinket" in w.player.inventory and any(k in text.lower() for k in ("trinket", "medallion", "found", "artifact")):
+            w.player.inventory.remove("ancient_trinket")
+            w.player.inventory.append("elder_sword")
+            w.player.quests["lost_trinket"] = "completed"
+            npc.memory.append("Player returned the ancient trinket.")
+            
+            # Major relationship boost and happiness
+            quest_messages = update_relationship(npc, 25, "returning precious family heirloom")
+            set_emotional_state(npc, "happy", "overjoyed to have family trinket back")
+            
+            auto_save(w, "quest_lost_trinket")
+            result = "Kael's eyes fill with tears as he takes the trinket. 'You found it! My family's most precious heirloom!' He reaches into his pack and draws out a magnificent sword. 'This Elder Sword has been in my family for centuries. It's yours now - you've earned it a thousand times over.' \n(Quest completed: Lost Trinket) \n(Received: Elder Sword - A legendary weapon!)"
+            return result + "".join(quest_messages)
+    
+    # Quest interactions with miner 
+    elif npc_key == "miner":
+        # Miner gives hint about secret chamber
+        if any(k in text.lower() for k in ("cave", "hidden", "secret", "chamber", "passage", "room")):
+            npc.memory.append("Told player about the secret chamber in hidden cave.")
+            quest_messages = update_relationship(npc, 5, "sharing valuable cave knowledge")
+            return out + "\n'Aye, I worked them caves for forty years, I did. There's more to that hidden cave than meets the eye - behind some loose rocks on the eastern wall, there's a secret chamber. Most folk don't know about it, but I found it years ago. Might be somethin' valuable in there still.'" + "".join(quest_messages)
     
     return out
 
@@ -524,12 +2432,19 @@ HELP = (
 "  go <place>\n"
 "  talk to <npc> <text>\n"
 "  ask <npc> about <topic>\n"
-"  shop\n"
-"  buy <item>\n"
+"  shop / buy <item>\n"
 "  take <item> / drop <item>\n"
-"  inventory / i\n"
-"  stats\n"
+"  inventory / i (enhanced with categories)\n"
+"  stats (show combat stats)\n"
+"  equip <item> / unequip <slot>\n"
+"  use <item> (consumables)\n"
 "  quests\n"
+"  map (show explored areas)\n"
+"  achievements (show progress)\n"
+"  relationships (show NPC status)\n"
+"  save [name] / load [name]\n"
+"  saves (list save files)\n"
+"  exit (return to previous location)\n"
 "  quit\n"
 "While in combat: attack, defend, flee"
 )
@@ -548,9 +2463,32 @@ def parse_and_exec(w: World, raw: str) -> str:
         if low in ("inventory","inv","i","stats"): return stats(w)
         return "You're in combat! Try: attack, defend, or flee."
 
-    # movement
+    # movement with special cases
     if low.startswith(("go ","move ","walk ")):
         target = low.split(maxsplit=1)[1].replace(" ","_")
+        
+        # Special case: hidden door in hidden cave
+        if w.player.location == "hidden_cave" and any(keyword in target.lower() for keyword in ["hidden_door", "secret_door", "door", "secret_chamber", "chamber"]):
+            # Update location history
+            w.player.previous_location = w.player.location
+            w.player.location = "secret_chamber"
+            
+            # Track explored areas
+            if "secret_chamber" not in w.player.explored_areas:
+                w.player.explored_areas.append("secret_chamber")
+            
+            # Check for new achievements
+            new_achievements = check_achievements(w)
+            achievement_notifications = ""
+            for achievement in new_achievements:
+                achievement_notifications += show_achievement_notification(achievement)
+            
+            result = describe_location(w)
+            if achievement_notifications:
+                result += achievement_notifications
+            
+            return result + "\n\nYou squeeze through a gap behind the loose rocks and discover a hidden chamber!"
+        
         return move_player(w, target)
 
     # look
@@ -570,6 +2508,19 @@ def parse_and_exec(w: World, raw: str) -> str:
     if low.startswith("buy "):
         item = s.split(" ",1)[1].strip().replace(" ","_")
         return buy_item(w, "blacksmith", item)
+    
+    # equipment management
+    if low.startswith("equip "):
+        item = s.split(" ",1)[1].strip().replace(" ","_")
+        return equip_item(w, item)
+    
+    if low.startswith("unequip "):
+        slot = s.split(" ",1)[1].strip()
+        return unequip_item(w, slot)
+    
+    if low.startswith("use "):
+        item = s.split(" ",1)[1].strip().replace(" ","_")
+        return use_item(w, item)
 
     # talk
     if low.startswith(("talk to ","talk ")):
@@ -578,13 +2529,14 @@ def parse_and_exec(w: World, raw: str) -> str:
             if len(parts) < 3:
                 return "Talk to whom?"
             npc_key = parts[2]
-            text = s.split(parts[2],1)[1]
+            # Always enter conversation mode - no more direct messages
+            return conversation_mode(w, npc_key)
         else:
             if len(parts) < 2:
                 return "Talk to whom?"
             npc_key = parts[1]
-            text = s.split(parts[1],1)[1]
-        return talk_to(w, npc_key, text.strip() or "Hello.")
+            # Always enter conversation mode - no more direct messages
+            return conversation_mode(w, npc_key)
 
     # ask
     if low.startswith("ask "):
@@ -595,8 +2547,46 @@ def parse_and_exec(w: World, raw: str) -> str:
             return talk_to(w, npc_key, f"Tell me about {topic}.")
         return "Try: ask <npc> about <topic>."
 
+    # save/load
+    if low.startswith("save"):
+        parts = s.split()
+        save_name = parts[1] if len(parts) > 1 else "quicksave"
+        return save_game(w, save_name)
+    
+    if low.startswith("load"):
+        parts = s.split()
+        save_name = parts[1] if len(parts) > 1 else "quicksave"
+        new_world, message = load_game(save_name)
+        if new_world:
+            return ("__LOAD__", new_world, message)
+        else:
+            return message
+    
+    if low in ("saves", "list"):
+        return list_saves()
+
+    # exit (go back to previous location)
+    if low == "exit":
+        if not w.player.previous_location:
+            return "You haven't been anywhere yet to exit back to."
+        if w.flags.get("in_combat"):
+            return "You can't exit while in combat! Try: attack, defend, or flee."
+        return move_player(w, w.player.previous_location)
+
+    # map
+    if low in ["map", "m"]:
+        return get_mini_map(w)
+    
+    # achievements  
+    if low in ["achievements", "ach"]:
+        return show_achievements_list(w)
+    
+    # relationships
+    if low in ["relationships", "relationship", "rel"]:
+        return show_relationships(w)
+
     # quit
-    if low in ("quit","exit"): return "__QUIT__"
+    if low == "quit": return "__QUIT__"
 
     # name-first talk
     first = low.split()[0]
@@ -628,15 +2618,128 @@ def repl():
     print(describe_location(w))
     while True:
         try:
+            # Check for game completion
+            if w.flags.get("game_completed", False):
+                completion_result = handle_game_completion()
+                if completion_result == "__QUIT__":
+                    break
+                elif completion_result == "__RESTART__":
+                    # Restart the game
+                    w = build_world()
+                    print("\n" + "=" * 60)
+                    print("NEW GAME STARTED")
+                    print("=" * 60)
+                    print("You are a wandering adventurer who has arrived in this small village.")
+                    print("The locals speak of ancient treasures and growing dangers.")
+                    print("Elder Theron lies cursed and weak, while the blacksmith seeks worthy")
+                    print("heroes. An ominous sealed tower looms over the village square.")
+                    print("\nYour journey begins now. Seek work, prove yourself, and uncover")
+                    print("the mysteries that await. Talk to the villagers to learn more.")
+                    print("\nType 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
+                    print("=" * 60)
+                    print()
+                    print(describe_location(w))
+                    continue
+                elif completion_result.startswith("__LOAD__"):
+                    # Load specified save
+                    save_name = completion_result[8:]  # Remove "__LOAD__" prefix
+                    try:
+                        loaded_world = load_world(save_name)
+                        if loaded_world:
+                            w = loaded_world
+                            print(f"{colorize_success(f'Game loaded from {save_name}!')}")
+                            print(describe_location(w))
+                            continue
+                        else:
+                            print(colorize_error(f"Failed to load {save_name}. Starting new game..."))
+                            w = build_world()
+                            print(describe_location(w))
+                            continue
+                    except Exception as e:
+                        print(colorize_error(f"Error loading save: {e}. Starting new game..."))
+                        w = build_world()
+                        print(describe_location(w))
+                        continue
+
+            # Check for game over
+            if w.flags.get("game_over", False):
+                game_over_result = handle_game_over()
+                if game_over_result == "__QUIT__":
+                    break
+                elif game_over_result == "__RESTART__":
+                    # Restart the game
+                    w = build_world()
+                    print("\n" + "=" * 60)
+                    print("NEW GAME STARTED")
+                    print("=" * 60)
+                    print("You are a wandering adventurer who has arrived in this small village.")
+                    print("The locals speak of ancient treasures and growing dangers.")
+                    print("Elder Theron lies cursed and weak, while the blacksmith seeks worthy")
+                    print("heroes. An ominous sealed tower looms over the village square.")
+                    print("\nYour journey begins now. Seek work, prove yourself, and uncover")
+                    print("the mysteries that await. Talk to the villagers to learn more.")
+                    print("\nType 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
+                    print("=" * 60)
+                    print()
+                    print(describe_location(w))
+                    continue
+                elif game_over_result.startswith("__LOAD__"):
+                    # Load specified save
+                    save_name = game_over_result[8:]  # Remove "__LOAD__" prefix
+                    try:
+                        loaded_world = load_world(save_name)
+                        if loaded_world:
+                            w = loaded_world
+                            print(f"{colorize_success(f'Game loaded from {save_name}!')}")
+                            print(describe_location(w))
+                            continue
+                        else:
+                            print(colorize_error(f"Failed to load {save_name}. Starting new game..."))
+                            w = build_world()
+                            print(describe_location(w))
+                            continue
+                    except Exception as e:
+                        print(colorize_error(f"Error loading save: {e}. Starting new game..."))
+                        w = build_world()
+                        print(describe_location(w))
+                        continue
+            
+            # Check if in conversation mode
+            if w.flags.get("in_conversation", False):
+                # Conversation mode is handled within conversation_mode function
+                # Just skip regular command processing
+                continue
+            
+            # Display context menu
+            print("\n" + display_context_menu(w))
             raw = input("> ")
         except EOFError:
             print("\nGoodbye."); break
+        
         if raw.strip().lower() in ("help","h","?"):
             print(HELP); continue
-        out = parse_and_exec(w, raw)
-        if out == "__QUIT__":
+        
+        # Check if input is a menu selection
+        menu_command = parse_menu_selection(w, raw)
+        if menu_command is not None:
+            if menu_command.startswith("Invalid"):
+                print(colorize_error(menu_command))
+                continue
+            raw = menu_command
+        
+        result = parse_and_exec(w, raw)
+        
+        # Handle special return values
+        if result == "__QUIT__":
             print("Goodbye."); break
-        print(out)
+        elif isinstance(result, tuple) and len(result) == 3 and result[0] == "__LOAD__":
+            # Load command successful
+            _, w, message = result
+            print(message)
+            print(describe_location(w))
+        else:
+            # Normal command output
+            print(result)
 
 if __name__ == "__main__":
     repl()
