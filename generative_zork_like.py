@@ -24,6 +24,8 @@ Run:
 import os
 import json
 import random
+import threading
+import time
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional
@@ -39,6 +41,27 @@ except ImportError:
         RED = GREEN = YELLOW = BLUE = MAGENTA = CYAN = WHITE = RESET = BRIGHT = RESET_ALL = ""
     Fore = Back = Style = MockColors()
     COLORS_AVAILABLE = False
+
+# Try to import audio libraries
+AUDIO_AVAILABLE = False
+try:
+    import pygame
+    pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+    AUDIO_AVAILABLE = True
+    AUDIO_BACKEND = "pygame"
+except ImportError:
+    try:
+        import playsound
+        AUDIO_AVAILABLE = True
+        AUDIO_BACKEND = "playsound"
+    except ImportError:
+        try:
+            import winsound  # Windows only
+            AUDIO_AVAILABLE = True
+            AUDIO_BACKEND = "winsound"
+        except ImportError:
+            AUDIO_AVAILABLE = False
+            AUDIO_BACKEND = None
 
 # ---------- API key loading ----------
 def load_anthropic_key() -> str:
@@ -71,6 +94,177 @@ def load_anthropic_key() -> str:
         pass
 
     return ""
+
+# ---------- Music System ----------
+class MusicManager:
+    def __init__(self):
+        self.enabled = AUDIO_AVAILABLE
+        self.volume = 0.3
+        self.current_track = None
+        self.current_category = None
+        self.music_thread = None
+        self.stop_music = False
+        
+        # Music tracks mapping - one track per category for consistency
+        self.tracks = {
+            "village": "07 - Town.ogg",
+            "forest": "08 - Overworld.ogg", 
+            "cave": "15 - Dungeon.ogg",
+            "ruins": "12 - Timeworn Pagoda.ogg",
+            "combat": "13 - Danger.ogg",
+            "boss": "14 - Barbarian King.ogg",
+            "victory": "17 - Victory.ogg",
+            "defeat": "20 - Game Over.ogg",
+            "indoor": "23 - Inn.ogg"
+        }
+        
+        # Location to music category mapping
+        self.location_music = {
+            "village_square": "village",
+            "blacksmith_shop": "indoor", 
+            "healer_tent": "indoor",
+            "elder_hut": "indoor",
+            "forest_path": "forest",
+            "iron_mine": "cave",
+            "hidden_cave": "cave",
+            "deep_ruins": "ruins",
+            "sealed_tower": "ruins"
+        }
+    
+    def set_volume(self, volume: float):
+        """Set music volume (0.0 to 1.0)"""
+        self.volume = max(0.0, min(1.0, volume))
+        if AUDIO_BACKEND == "pygame" and pygame.mixer.get_init():
+            pygame.mixer.music.set_volume(self.volume)
+    
+    def play_track(self, category: str, loop: bool = True):
+        """Play a music track from the given category"""
+        if not self.enabled or category not in self.tracks:
+            return
+            
+        # Don't restart if same category is playing
+        if self.current_category == category and self.music_thread and self.music_thread.is_alive():
+            return
+            
+        self.stop_current_track()
+        self.current_category = category
+        
+        # Get the specific track for this category
+        track = self.tracks[category]
+        
+        # Create music directory path
+        music_dir = Path("music")
+        track_path = music_dir / track
+        
+        # Only play if file exists
+        if track_path.exists():
+            if AUDIO_BACKEND == "pygame":
+                self._play_pygame(track_path, loop)
+            else:
+                self._play_fallback(track_path, loop)
+        else:
+            # File doesn't exist, but update status to show what would be playing
+            self.current_track = f"{track} (missing)"
+            self.current_category = category
+    
+    def _play_pygame(self, track_path, loop):
+        """Play using pygame mixer"""
+        try:
+            # Stop any current music cleanly
+            pygame.mixer.music.stop()
+            pygame.mixer.music.unload()
+            
+            # Load and play new track
+            pygame.mixer.music.load(str(track_path))
+            pygame.mixer.music.set_volume(self.volume)
+            # Use -1 for infinite loop, 0 for play once
+            pygame.mixer.music.play(loops=-1 if loop else 0)
+            self.current_track = track_path.name
+            
+        except Exception as e:
+            # Silently fail - music is optional
+            self.current_track = f"{track_path.name} (error)"
+    
+    def _play_fallback(self, track_path, loop):
+        """Fallback audio playback"""
+        def play_music():
+            try:
+                if AUDIO_BACKEND == "playsound":
+                    # playsound doesn't support looping
+                    while not self.stop_music:
+                        playsound.playsound(str(track_path), block=True)
+                        if not loop:
+                            break
+                elif AUDIO_BACKEND == "winsound":
+                    flags = winsound.SND_FILENAME
+                    if loop:
+                        flags |= winsound.SND_LOOP | winsound.SND_ASYNC
+                    winsound.PlaySound(str(track_path), flags)
+            except Exception:
+                pass
+        
+        if AUDIO_BACKEND in ["playsound", "winsound"]:
+            self.stop_music = False
+            self.music_thread = threading.Thread(target=play_music, daemon=True)
+            self.music_thread.start()
+    
+    def stop_current_track(self):
+        """Stop currently playing music"""
+        self.stop_music = True
+        
+        if AUDIO_BACKEND == "pygame" and pygame.mixer.get_init():
+            pygame.mixer.music.stop()
+            pygame.mixer.music.unload()
+        elif AUDIO_BACKEND == "winsound":
+            try:
+                winsound.PlaySound(None, winsound.SND_PURGE)
+            except:
+                pass
+        
+        if self.music_thread and self.music_thread.is_alive():
+            self.music_thread.join(timeout=0.5)
+    
+    def play_location_music(self, location_key: str):
+        """Play appropriate music for a location"""
+        category = self.location_music.get(location_key, "village")
+        self.play_track(category)
+    
+    def play_combat_music(self, is_boss: bool = False):
+        """Play combat music"""
+        category = "boss" if is_boss else "combat"
+        self.play_track(category)
+    
+    def play_victory_music(self):
+        """Play victory music"""
+        self.play_track("victory", loop=False)
+    
+    def play_defeat_music(self):
+        """Play defeat music"""
+        self.play_track("defeat", loop=False)
+    
+    def toggle_music(self):
+        """Toggle music on/off"""
+        self.enabled = not self.enabled
+        if not self.enabled:
+            self.stop_current_track()
+        return self.enabled
+    
+    def get_status(self):
+        """Get current music status"""
+        if not AUDIO_AVAILABLE:
+            return "🔇 No audio libraries available"
+        elif not self.enabled:
+            return "🔇 Music disabled"
+        elif self.current_track:
+            if "(missing)" in self.current_track:
+                return f"🎵 Would play: {self.current_track.replace(' (missing)', '')} ({self.current_category}) - File not found"
+            else:
+                return f"🎵 Playing: {self.current_track} ({self.current_category})"
+        else:
+            return "🎵 Music enabled, no track playing"
+
+# Global music manager instance
+music_manager = MusicManager()
 
 # ---------- Color utilities ----------
 def colorize_npc(text: str) -> str:
@@ -836,7 +1030,7 @@ def show_enhanced_inventory(w: "World") -> str:
                 if item_obj.stats:
                     stat_parts = []
                     for stat, value in item_obj.stats.items():
-                        if value > 0:
+                        if isinstance(value, str) or value > 0:
                             stat_parts.append(f"+{value} {stat}")
                     if stat_parts:
                         stats_text = f" ({', '.join(stat_parts)})"
@@ -937,11 +1131,23 @@ def use_item(w: "World", item_key: str) -> str:
     w.player.inventory.remove(item_key)
     
     if "heal" in item.stats:
+        # Check if already at full health
+        if w.player.hp >= w.player.max_hp:
+            # Return the item to inventory
+            w.player.inventory.append(item_key)
+            return f"You're already at full health! The {colorize_item(item.name)} remains unused."
+        
         heal_amount = item.stats["heal"]
         old_hp = w.player.hp
-        w.player.hp = min(w.player.max_hp, w.player.hp + heal_amount)
-        actual_heal = w.player.hp - old_hp
-        return f"You use the {colorize_item(item.name)} and recover {colorize_success(str(actual_heal))} HP. (HP: {w.player.hp}/{w.player.max_hp})"
+        
+        if heal_amount == "full":
+            w.player.hp = w.player.max_hp
+            actual_heal = w.player.hp - old_hp
+            return f"You use the {colorize_item(item.name)} and recover {colorize_success('full')} HP! (HP: {w.player.hp}/{w.player.max_hp})"
+        else:
+            w.player.hp = min(w.player.max_hp, w.player.hp + heal_amount)
+            actual_heal = w.player.hp - old_hp
+            return f"You use the {colorize_item(item.name)} and recover {colorize_success(str(actual_heal))} HP. (HP: {w.player.hp}/{w.player.max_hp})"
     
     return f"You use the {colorize_item(item.name)}."
 
@@ -1060,6 +1266,24 @@ ITEMS = {
         stats={"defense": 5},
         value=150,
         equipable=True
+    ),
+    "healing_potion": Item(
+        key="healing_potion",
+        name="Healing Potion",
+        category="consumable",
+        description="A magical potion that restores 10 HP when consumed. Can be used anywhere.",
+        stats={"heal": 10},
+        value=8,
+        equipable=False
+    ),
+    "greater_healing_potion": Item(
+        key="greater_healing_potion", 
+        name="Greater Healing Potion",
+        category="consumable",
+        description="A powerful healing elixir that fully restores HP. Can be used anywhere.",
+        stats={"heal": "full"},
+        value=20,
+        equipable=False
     )
 }
 
@@ -1118,6 +1342,10 @@ SHOP = {
     "blacksmith": {
         "rusty_sword": 10,
         "guardian_armor": 15,
+    },
+    "healer": {
+        "healing_potion": 8,
+        "greater_healing_potion": 20,
     }
 }
 
@@ -1474,6 +1702,10 @@ def handle_quest_interactions(w: World, npc_key: str, text: str, npc) -> str:
 def describe_location(w: World) -> str:
     loc = w.locations[w.player.location]
     
+    # Play location music (unless in combat)
+    if not w.flags.get("in_combat"):
+        music_manager.play_location_music(loc.key)
+    
     # Check for restored boss monsters (fled from previously)
     boss_key = w.flags.get(f"{loc.key}_boss_key")
     boss_hp = w.flags.get(f"{loc.key}_boss_hp")
@@ -1487,6 +1719,10 @@ def describe_location(w: World) -> str:
             w.monster = Monster(key="tower_guardian", name="Tower Guardian", hp=boss_hp, attack_min=5, attack_max=9)
         
         w.flags["in_combat"] = True
+        
+        # Play boss music
+        music_manager.play_combat_music(is_boss=True)
+        
         # Clear the stored boss data since we've restored it
         del w.flags[f"{loc.key}_boss_key"]
         del w.flags[f"{loc.key}_boss_hp"]
@@ -1511,6 +1747,10 @@ def describe_location(w: World) -> str:
                 attack_max=5       # max damage
             )
             w.flags["in_combat"] = True
+            
+            # Play combat music  
+            music_manager.play_combat_music(is_boss=True)
+            
             loc.visited = True
             creature_art = get_creature_art("Cave Beast")
             return (loc.description + creature_art + 
@@ -1653,6 +1893,10 @@ def move_player(w: World, dest_key: str) -> str:
                 attack_max=4       
             )
             w.flags["in_combat"] = True
+            
+            # Play regular combat music for random encounters
+            music_manager.play_combat_music(is_boss=False)
+            
             creature_art = get_creature_art("Forest Wolf")
             return ("You enter the forest path..." + creature_art +
                     "\nA hungry forest wolf prowls out from behind the trees! You are in combat."
@@ -1976,6 +2220,9 @@ def generate_context_menu(w: World) -> list[str]:
     if loc.key == "blacksmith_shop":
         options.append(colorize_command("Browse shop"))
     
+    if loc.key == "healer_tent":
+        options.append(colorize_command("Browse shop"))
+    
     if w.player.hp < w.player.max_hp and "healer" in loc.npcs:
         options.append(colorize_success("Get healing"))
     
@@ -2049,7 +2296,7 @@ def parse_menu_selection(w: World, selection: str) -> str:
             elif "Browse shop" in option:
                 return "shop"
             elif "Get healing" in option:
-                return "talk to healer heal me"
+                return "heal"
             elif "View map" in option:
                 return "map"
             elif "View achievements" in option:
@@ -2073,13 +2320,28 @@ def parse_menu_selection(w: World, selection: str) -> str:
 def show_shop(w: World) -> str:
     if w.flags.get("in_combat"): return "Busy fighting!"
     loc = w.locations[w.player.location]
-    if "blacksmith" not in loc.npcs:
+    
+    # Find which shop owner is present
+    shop_owner = None
+    for npc in loc.npcs:
+        if npc in SHOP:
+            shop_owner = npc
+            break
+    
+    if not shop_owner:
         return "There's no shop here."
-    stock = SHOP.get("blacksmith", {})
+    
+    stock = SHOP.get(shop_owner, {})
     if not stock: return "The shop is closed."
-    lines = ["For sale:"]
+    
+    # Get shop owner's name for display
+    owner_name = w.npcs[shop_owner].name if shop_owner in w.npcs else shop_owner.title()
+    
+    lines = [colorize_command(f"{owner_name}'s Shop")]
+    lines.append(f"{colorize_item('For sale:')}")
     for item, price in stock.items():
-        lines.append(f"  {item} — {price} gold")
+        item_display = item.replace("_", " ").title()
+        lines.append(f"  {colorize_item(item_display)} — {colorize_warning(str(price) + ' gold')}")
     return "\n".join(lines)
 
 def buy_item(w: World, npc_key: str, item: str) -> str:
@@ -2099,6 +2361,55 @@ def buy_item(w: World, npc_key: str, item: str) -> str:
     w.player.inventory.append(item)
     w.npcs[npc_key].memory.append(f"Sold {item} to player for {price} gold at {w.player.location}")
     return f"You buy the {item} for {price} gold."
+
+def get_healing(w: World) -> str:
+    """Direct healing transaction without dialogue"""
+    if w.flags.get("in_combat"):
+        return "You can't get healing while in combat!"
+    
+    if w.player.location != "healer_tent":
+        return "You need to be at the healer's tent to get healing."
+    
+    if "healer" not in w.locations[w.player.location].npcs:
+        return "The healer isn't here right now."
+    
+    if w.player.hp >= w.player.max_hp:
+        return colorize_success("You're already at full health!")
+    
+    healer = w.npcs["healer"]
+    
+    # Check if eligible for free healing
+    if "magical_amulet" in w.player.inventory or w.player.quests.get("heal_elder") == "completed":
+        # Free healing for saving the Elder
+        w.player.hp = w.player.max_hp
+        healer.memory.append("Healed the player for free as thanks for saving Elder Theron.")
+        update_relationship(healer, 3, "grateful for saving the Elder")
+        return (colorize_success("'You saved Elder Theron! This healing is my gift to you.'") + "\n" +
+                colorize_item("Mira's magic flows through you, restoring your health!") + "\n" +
+                colorize_success(f"(Fully healed - FREE for saving the Elder! HP: {w.player.hp}/{w.player.max_hp})"))
+    
+    # Paid healing
+    if w.player.gold < 5:
+        return colorize_warning("You need 5 gold for healing. Come back when you have enough.")
+    
+    # Confirm healing cost
+    print(colorize_command(f"Healing costs 5 gold. You have {w.player.gold} gold."))
+    print(colorize_quest(f"Restore HP from {w.player.hp} to {w.player.max_hp}?"))
+    print(colorize_command("Confirm? (y/n):"), end=" ")
+    
+    try:
+        confirm = input().strip().lower()
+        if confirm in ['y', 'yes']:
+            w.player.gold -= 5
+            w.player.hp = w.player.max_hp
+            healer.memory.append("Healed the player for 5 gold.")
+            return (colorize_success("'Let me tend to those wounds.'") + "\n" +
+                    colorize_item("Mira's magic flows through you, restoring your health!") + "\n" +
+                    colorize_success(f"(Fully healed for 5 gold. HP: {w.player.hp}/{w.player.max_hp})"))
+        else:
+            return colorize_warning("Healing cancelled.")
+    except (KeyboardInterrupt, EOFError):
+        return colorize_warning("Healing cancelled.")
 
 # ---------- Combat ----------
 def player_attack_damage(w: World) -> int:
@@ -2123,6 +2434,9 @@ def do_attack(w: World) -> str:
         w.monster = None
         victory_text = colorize_success(f"The {mon.name} collapses. You are victorious!")
         lines.append(victory_text)
+        
+        # Play victory music
+        music_manager.play_victory_music()
         
         # Gold drops from monsters
         gold_reward = 0
@@ -2184,6 +2498,9 @@ def do_attack(w: World) -> str:
         lines.append(game_over_text)
         w.flags["in_combat"] = False
         w.flags["game_over"] = True
+        
+        # Play defeat music
+        music_manager.play_defeat_music()
     return "\n".join(lines)
 
 def do_defend(w: World) -> str:
@@ -2438,12 +2755,16 @@ HELP = (
 "  stats (show combat stats)\n"
 "  equip <item> / unequip <slot>\n"
 "  use <item> (consumables)\n"
+"  heal (get healing at healer's tent)\n"
 "  quests\n"
 "  map (show explored areas)\n"
 "  achievements (show progress)\n"
 "  relationships (show NPC status)\n"
 "  save [name] / load [name]\n"
 "  saves (list save files)\n"
+"  music (show music status)\n"
+"  music on/off (toggle music)\n"
+"  volume <0.0-1.0> (set volume)\n"
 "  exit (return to previous location)\n"
 "  quit\n"
 "While in combat: attack, defend, flee"
@@ -2507,7 +2828,19 @@ def parse_and_exec(w: World, raw: str) -> str:
     if low == "shop": return show_shop(w)
     if low.startswith("buy "):
         item = s.split(" ",1)[1].strip().replace(" ","_")
-        return buy_item(w, "blacksmith", item)
+        
+        # Auto-detect shop owner
+        loc = w.locations[w.player.location]
+        shop_owner = None
+        for npc in loc.npcs:
+            if npc in SHOP:
+                shop_owner = npc
+                break
+        
+        if not shop_owner:
+            return "There's no shop here."
+            
+        return buy_item(w, shop_owner, item)
     
     # equipment management
     if low.startswith("equip "):
@@ -2521,6 +2854,10 @@ def parse_and_exec(w: World, raw: str) -> str:
     if low.startswith("use "):
         item = s.split(" ",1)[1].strip().replace(" ","_")
         return use_item(w, item)
+
+    # healing
+    if low in ("heal", "healing", "get healing"):
+        return get_healing(w)
 
     # talk
     if low.startswith(("talk to ","talk ")):
@@ -2561,6 +2898,29 @@ def parse_and_exec(w: World, raw: str) -> str:
             return ("__LOAD__", new_world, message)
         else:
             return message
+    
+    # music commands
+    if low in ("music", "music status"):
+        return music_manager.get_status()
+    
+    if low in ("music off", "music disable", "mute"):
+        music_manager.enabled = False
+        music_manager.stop_current_track()
+        return colorize_success("🔇 Music disabled")
+    
+    if low in ("music on", "music enable", "unmute"):
+        music_manager.enabled = True
+        # Resume location music
+        music_manager.play_location_music(w.player.location)
+        return colorize_success("🎵 Music enabled")
+    
+    if low.startswith("volume "):
+        try:
+            volume = float(s.split()[1])
+            music_manager.set_volume(volume)
+            return f"🔊 Volume set to {int(volume * 100)}%"
+        except (ValueError, IndexError):
+            return "Usage: volume <0.0-1.0>"
     
     if low in ("saves", "list"):
         return list_saves()

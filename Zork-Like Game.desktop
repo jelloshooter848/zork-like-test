@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Name=Zork-Like Game
+Comment=Village of Theron Text Adventure with Music
+Exec=/home/lando/projects/zork-like-test/launch-game.sh
+Icon=applications-games
+Terminal=false
+Type=Application
+Categories=Game;AdventureGame;
+StartupNotify=true
+Path=/home/lando/projects/zork-like-test

@@ -8,10 +8,13 @@ quest progression, and an immersive fantasy world.
 ## Setup & Running
 
 ```bash
-# Setup virtual environment (recommended)
+# Easy Setup - Use the Launcher (Recommended)
+./launch-game.sh
+
+# OR Manual Setup
 python3 -m venv venv
 source venv/bin/activate
-pip install anthropic colorama
+pip install pygame colorama anthropic
 
 # Create API key file
 mkdir -p secrets
@@ -29,6 +32,7 @@ python generative_zork_like.py
 - **ASCII Art Headers**: Beautiful visual representations for all locations
 - **Save/Load System**: JSON-based saves with timestamps and multiple slots
 - **Auto-Save**: Automatic progress saving on quest completions
+- **Background Music**: Dynamic soundtrack that changes with locations and events
 
 **🗡️ Adventure Elements:**
 - **6-Quest Story Campaign**: Complete quest chain from village newcomer to hero
@@ -78,7 +82,64 @@ python generative_zork_like.py
 - `help` - Show command list
 - `quit` - Exit game
 
+**Music:**
+- `music` - Toggle background music on/off
+- `volume <0-10>` - Adjust music volume (0=off, 10=max)
+
 **Modern Features:**
 - **Numbered Menu**: Type 1-9 to select context menu options
 - **Auto-Save**: Game saves automatically on major events
 - **Color Display**: Enhanced visual experience with colored text
+- **Dynamic Music**: Atmospheric soundtrack with 8+ music categories
+
+## Launcher Options
+
+**Option 1: Simple Launcher (Recommended)**
+```bash
+./launch-game.sh
+```
+- Automatically sets up virtual environment
+- Installs all dependencies (pygame, colorama, anthropic)
+- Launches game in new terminal window
+- Cross-platform terminal detection
+
+**Option 2: Desktop Shortcut**
+- Double-click `Zork-Like Game.desktop` file
+- Integrates with Linux desktop environments
+- Uses the launcher script automatically
+
+**Option 3: GUI Desktop App**
+```bash
+python3 create-desktop-app.py
+```
+- Full GUI interface with tkinter
+- Terminal-like game window
+- Built-in command input and scrollable output
+
+**Option 4: Standalone Executable**
+```bash
+./build-executable.sh
+```
+- Creates completely portable executable
+- Includes all dependencies and music files
+- No Python installation required
+
+## Music System
+
+The game features a comprehensive background music system:
+
+**Music Categories:**
+- 🏘️ **Village** - Peaceful town themes for safe areas
+- 🌲 **Forest** - Ambient nature sounds for exploration
+- ⛰️ **Cave** - Dark, atmospheric dungeon music
+- 🏛️ **Ruins** - Mysterious ancient themes
+- ⚔️ **Combat** - Intense battle music during fights
+- 👑 **Boss** - Epic themes for major encounters
+- 🎉 **Victory** - Triumphant music for successful battles
+- 💀 **Defeat** - Somber themes for game over
+
+**Audio Support:**
+- Multi-backend support (pygame, playsound, winsound)
+- Supports .ogg, .mp3, and .wav audio files
+- Graceful fallback when audio libraries unavailable
+- Threaded playback for smooth gameplay
