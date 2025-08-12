@@ -177,6 +177,10 @@ class MusicManager:
     def _play_pygame(self, track_path, loop):
         """Play using pygame mixer"""
         try:
+            # Check if pygame mixer is initialized
+            if not pygame.mixer.get_init():
+                pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+            
             # Stop any current music cleanly
             pygame.mixer.music.stop()
             pygame.mixer.music.unload()
@@ -188,8 +192,19 @@ class MusicManager:
             pygame.mixer.music.play(loops=-1 if loop else 0)
             self.current_track = track_path.name
             
+        except pygame.error as e:
+            # Pygame-specific error - try to reinitialize
+            try:
+                pygame.mixer.quit()
+                pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+                pygame.mixer.music.load(str(track_path))
+                pygame.mixer.music.set_volume(self.volume)
+                pygame.mixer.music.play(loops=-1 if loop else 0)
+                self.current_track = track_path.name
+            except Exception:
+                self.current_track = f"{track_path.name} (error)"
         except Exception as e:
-            # Silently fail - music is optional
+            # Other errors
             self.current_track = f"{track_path.name} (error)"
     
     def _play_fallback(self, track_path, loop):
@@ -207,13 +222,19 @@ class MusicManager:
                     if loop:
                         flags |= winsound.SND_LOOP | winsound.SND_ASYNC
                     winsound.PlaySound(str(track_path), flags)
-            except Exception:
-                pass
+                    
+                self.current_track = track_path.name
+            except Exception as e:
+                # Mark track as error for status reporting
+                self.current_track = f"{track_path.name} (error)"
         
         if AUDIO_BACKEND in ["playsound", "winsound"]:
             self.stop_music = False
             self.music_thread = threading.Thread(target=play_music, daemon=True)
             self.music_thread.start()
+        else:
+            # No audio backend available
+            self.current_track = f"{track_path.name} (no backend)"
     
     def stop_current_track(self):
         """Stop currently playing music"""
@@ -256,7 +277,7 @@ class MusicManager:
             self.stop_current_track()
         return self.enabled
     
-    def restart_music(self):
+    def restart_music(self, world=None):
         """Restart the music system - useful after crashes"""
         try:
             # Stop any current music
@@ -276,15 +297,30 @@ class MusicManager:
             self.current_category = None
             self.stop_music = False
             
-            # Resume appropriate music based on current context
-            # If in combat, play combat music; otherwise play location music
-            if hasattr(w, 'flags') and w.flags.get("in_combat"):
-                # Check if it's a boss fight
-                is_boss = (hasattr(w, 'active_monster') and w.active_monster and 
-                          getattr(w.active_monster, 'hp', 0) >= 50)
-                self.play_combat_music(is_boss=is_boss)
-            elif hasattr(w, 'player') and w.player.location:
-                self.play_location_music(w.player.location)
+            # Try to get world context - first from parameter, then from globals
+            current_world = world
+            if not current_world:
+                try:
+                    # Try to access global w variable
+                    import sys
+                    current_frame = sys._getframe(1)
+                    current_world = current_frame.f_globals.get('w')
+                except:
+                    current_world = None
+            
+            # Resume appropriate music based on current context if world is available
+            if current_world:
+                try:
+                    if hasattr(current_world, 'flags') and current_world.flags.get("in_combat"):
+                        # Check if it's a boss fight
+                        is_boss = (hasattr(current_world, 'active_monster') and current_world.active_monster and 
+                                  getattr(current_world.active_monster, 'hp', 0) >= 50)
+                        self.play_combat_music(is_boss=is_boss)
+                    elif hasattr(current_world, 'player') and current_world.player.location:
+                        self.play_location_music(current_world.player.location)
+                except Exception:
+                    # If resuming music fails, that's okay - we still restarted the system
+                    pass
             
             return "🎵 Music system restarted successfully"
             
@@ -3760,6 +3796,7 @@ HELP = (
 "  saves (list save files)\n"
 "  music (show music status)\n"
 "  music on/off (toggle music)\n"
+"  music restart (restart music system)\n"
 "  volume <0.0-1.0> (set volume)\n"
 "  exit (return to previous location)\n"
 "  quit\n"
@@ -3923,6 +3960,9 @@ def parse_and_exec(w: World, raw: str) -> str:
             return f"🔊 Volume set to {int(volume * 100)}%"
         except (ValueError, IndexError):
             return "Usage: volume <0.0-1.0>"
+    
+    if low in ("music restart", "restart music", "music reset", "reset music"):
+        return music_manager.restart_music(w)
     
     if low in ("saves", "list"):
         return list_saves()
