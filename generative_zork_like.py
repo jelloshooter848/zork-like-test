@@ -541,6 +541,8 @@ class GameWindow:
         self.text_area = None
         self.input_var = None
         self.input_field = None
+        self.actions_frame = None
+        self.actions_label = None
         self.command_history = []
         self.history_index = -1
         self.waiting_for_input = False
@@ -655,6 +657,25 @@ class GameWindow:
         self.input_field.bind('<Up>', self.on_up_arrow)
         self.input_field.bind('<Down>', self.on_down_arrow)
         
+        # Create actions panel below input
+        self.actions_frame = tk.Frame(self.window, bg='black')
+        self.actions_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
+        
+        # Create actions display
+        self.actions_label = tk.Label(
+            self.actions_frame,
+            text="",
+            bg='black',
+            fg='green',
+            font=('Courier New', 10),  # Slightly larger for better readability
+            justify=tk.LEFT,
+            anchor='nw',  # Align to top-left for multi-line text
+            wraplength=0,  # Disable wrapping since we handle formatting manually
+            width=0,  # Auto-size width
+            pady=5  # Add some vertical padding
+        )
+        self.actions_label.pack(fill=tk.X)
+        
         # Focus on input field
         self.input_field.focus()
         
@@ -744,6 +765,98 @@ class GameWindow:
         self.input_result = "quit"
         if self.root:
             self.root.quit()
+    
+    def generate_compact_actions(self, w: "World") -> str:
+        """Generate descriptive action options for the actions panel in two-column layout"""
+        options = []
+        loc = w.locations[w.player.location]
+        
+        # Combat has priority - use single line for combat
+        if w.flags.get("in_combat"):
+            combat_options = ["1.Attack Monster", "2.Defend Yourself", "3.Flee Combat"]
+            return "  ".join(combat_options) + "    [? for help]"
+        
+        # Always available options
+        options.extend(["1.Look Around", "2.Check Inventory", "3.View Quests"])
+        
+        # Movement options - show more exits with full names
+        if loc.exits:
+            for i, exit in enumerate(loc.exits[:3], 4):  # Show up to 3 exits
+                exit_name = exit.replace("_", " ").title()
+                options.append(f"{i}.Go to {exit_name}")
+        
+        # NPCs with full names
+        if loc.npcs:
+            start_num = len(options) + 1
+            for i, npc_key in enumerate(loc.npcs[:2], start_num):  # Show up to 2 NPCs
+                npc_name = w.npcs[npc_key].name
+                options.append(f"{i}.Talk to {npc_name}")
+        
+        # Items with full names
+        if loc.items:
+            start_num = len(options) + 1
+            for i, item in enumerate(loc.items[:2], start_num):  # Show up to 2 items
+                item_name = item.replace("_", " ").title()
+                options.append(f"{i}.Take {item_name}")
+        
+        # Location-specific actions
+        start_num = len(options) + 1
+        if loc.key == "blacksmith_shop":
+            options.append(f"{start_num}.Browse Shop")
+            start_num += 1
+        elif loc.key == "healer_tent":
+            options.append(f"{start_num}.Browse Healer Shop")
+            start_num += 1
+        
+        # Healing option if available
+        if w.player.hp < w.player.max_hp and "healer" in loc.npcs:
+            options.append(f"{start_num}.Get Healing")
+            start_num += 1
+        
+        # Utility options
+        if w.player.explored_areas:
+            options.append(f"{start_num}.View Map")
+            start_num += 1
+        
+        options.append(f"{start_num}.Save Game")
+        
+        # Format in two columns for better readability
+        return self.format_two_columns(options)
+    
+    def format_two_columns(self, options: list) -> str:
+        """Format options in a clean two-column layout"""
+        if len(options) <= 3:
+            # For few options, use single line
+            return "  ".join(options) + "    [? for help]"
+        
+        # Calculate column width (30 characters should work well)
+        col_width = 30
+        lines = []
+        
+        # Split options into two columns
+        mid_point = (len(options) + 1) // 2
+        left_column = options[:mid_point]
+        right_column = options[mid_point:] + ["[? for help]"]
+        
+        # Create formatted lines
+        for i in range(max(len(left_column), len(right_column))):
+            left = left_column[i] if i < len(left_column) else ""
+            right = right_column[i] if i < len(right_column) else ""
+            
+            # Pad left column to consistent width
+            left_padded = left.ljust(col_width)
+            line = f"{left_padded}{right}"
+            lines.append(line.rstrip())  # Remove trailing spaces
+        
+        return "\n".join(lines)
+    
+    def update_actions_panel(self, w: "World"):
+        """Update the actions panel with current context"""
+        if not self.actions_label:
+            return
+            
+        actions_text = self.generate_compact_actions(w)
+        self.actions_label.configure(text=actions_text)
 
 # Create global game window instance
 game_window = GameWindow()
@@ -1407,11 +1520,11 @@ def handle_game_completion() -> str:
 
 {colorize_warning("Enter your choice (1-3):")}"""
     
-    print(completion_screen)
+    game_print(completion_screen)
     
     while True:
         try:
-            choice = input("> ").strip()
+            choice = game_input("> ").strip()
             
             if choice == "1":
                 print(f"\n{colorize_success('Starting new game...')}\n")
@@ -1429,7 +1542,7 @@ def handle_game_completion() -> str:
                             print(f"  {colorize_command('0')}. Cancel")
                             
                             while True:
-                                load_choice = input("\nEnter save number to load: ").strip()
+                                load_choice = game_input("\nEnter save number to load: ").strip()
                                 try:
                                     if load_choice == "0":
                                         break
@@ -1439,23 +1552,23 @@ def handle_game_completion() -> str:
                                         print(f"\n{colorize_success(f'Loading {save_name}...')}\n")
                                         return f"__LOAD__{save_name}"
                                     else:
-                                        print(colorize_error("Invalid choice. Try again."))
+                                        game_print(colorize_error("Invalid choice. Try again."))
                                 except ValueError:
-                                    print(colorize_error("Please enter a number."))
+                                    game_print(colorize_error("Please enter a number."))
                         else:
-                            print(f"\n{colorize_warning('No save files found.')}")
+                            game_print(f"\n{colorize_warning('No save files found.')}")
                     else:
-                        print(f"\n{colorize_warning('No save files found.')}")
+                        game_print(f"\n{colorize_warning('No save files found.')}")
                 except Exception:
-                    print(f"\n{colorize_error('Error loading save files.')}")
+                    game_print(f"\n{colorize_error('Error loading save files.')}")
             elif choice == "3":
-                print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
+                game_print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
                 return "__QUIT__"
             else:
-                print(colorize_error("Invalid choice. Please enter 1, 2, or 3."))
+                game_print(colorize_error("Invalid choice. Please enter 1, 2, or 3."))
                 
         except (KeyboardInterrupt, EOFError):
-            print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
+            game_print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
             return "__QUIT__"
 
 def handle_game_over() -> str:
@@ -1474,14 +1587,14 @@ def handle_game_over() -> str:
 
 {colorize_warning("Enter your choice (1-3):")}"""
     
-    print(game_over_screen)
+    game_print(game_over_screen)
     
     while True:
         try:
-            choice = input("> ").strip()
+            choice = game_input("> ").strip()
             
             if choice == "1":
-                print(f"\n{colorize_success('Restarting game...')}\n")
+                game_print(f"\n{colorize_success('Restarting game...')}\n")
                 return "__RESTART__"
             elif choice == "2":
                 # Show available saves
@@ -1490,13 +1603,13 @@ def handle_game_over() -> str:
                     if saves_dir.exists():
                         save_files = [f.stem for f in saves_dir.glob("*.json")]
                         if save_files:
-                            print(f"\n{colorize_command('Available saves:')}")
+                            game_print(f"\n{colorize_command('Available saves:')}")
                             for i, save_name in enumerate(save_files, 1):
-                                print(f"  {colorize_command(str(i))}. {save_name}")
-                            print(f"  {colorize_command('0')}. Cancel")
+                                game_print(f"  {colorize_command(str(i))}. {save_name}")
+                            game_print(f"  {colorize_command('0')}. Cancel")
                             
                             while True:
-                                load_choice = input("\nEnter save number to load: ").strip()
+                                load_choice = game_input("\nEnter save number to load: ").strip()
                                 try:
                                     if load_choice == "0":
                                         break
@@ -1506,23 +1619,23 @@ def handle_game_over() -> str:
                                         print(f"\n{colorize_success(f'Loading {save_name}...')}\n")
                                         return f"__LOAD__{save_name}"
                                     else:
-                                        print(colorize_error("Invalid choice. Try again."))
+                                        game_print(colorize_error("Invalid choice. Try again."))
                                 except ValueError:
-                                    print(colorize_error("Please enter a number."))
+                                    game_print(colorize_error("Please enter a number."))
                         else:
-                            print(f"\n{colorize_warning('No save files found.')}")
+                            game_print(f"\n{colorize_warning('No save files found.')}")
                     else:
-                        print(f"\n{colorize_warning('No save files found.')}")
+                        game_print(f"\n{colorize_warning('No save files found.')}")
                 except Exception:
-                    print(f"\n{colorize_error('Error loading save files.')}")
+                    game_print(f"\n{colorize_error('Error loading save files.')}")
             elif choice == "3":
-                print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
+                game_print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
                 return "__QUIT__"
             else:
-                print(colorize_error("Invalid choice. Please enter 1, 2, or 3."))
+                game_print(colorize_error("Invalid choice. Please enter 1, 2, or 3."))
                 
         except (KeyboardInterrupt, EOFError):
-            print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
+            game_print(f"\n{colorize_success('Thanks for playing! Goodbye.')}")
             return "__QUIT__"
 
 # ---------- Enhanced NPC System ----------
@@ -2190,30 +2303,30 @@ def conversation_mode(w: World, npc_key: str) -> str:
 {colorize_warning("Type your message or 'exit' to end the conversation.")}
 """
     
-    print(conversation_header)
+    game_print(conversation_header)
     
     while w.flags.get("in_conversation", False):
         try:
-            user_input = input(f"{colorize_command('You:')} ").strip()
+            user_input = game_input(f"{colorize_command('You:')} ").strip()
             
             if user_input.lower() in ["exit", "quit", "leave", "bye", "goodbye"]:
                 w.flags["in_conversation"] = False
                 w.flags.pop("conversation_npc", None)
-                print(f"\n{colorize_success('You end the conversation.')}")
+                game_print(f"\n{colorize_success('You end the conversation.')}")
                 break
             
             if not user_input:
-                print(colorize_warning("Say something or type 'exit' to leave."))
+                game_print(colorize_warning("Say something or type 'exit' to leave."))
                 continue
             
             # Process the conversation
             response = talk_to_conversation(w, npc_key, user_input)
-            print(f"{colorize_npc(f'{npc.name}:')} {response}")
+            game_print(f"{colorize_npc(f'{npc.name}:')} {response}")
             
         except (KeyboardInterrupt, EOFError):
             w.flags["in_conversation"] = False
             w.flags.pop("conversation_npc", None)
-            print(f"\n{colorize_success('You end the conversation.')}")
+            game_print(f"\n{colorize_success('You end the conversation.')}")
             break
     
     return ""
@@ -2650,9 +2763,11 @@ def move_player(w: World, dest_key: str) -> str:
     if achievement_notifications:
         result += achievement_notifications
     
-    # Update dashboard if it's open
+    # Update dashboard and actions panel if they're open
     if TKINTER_AVAILABLE:
         game_dashboard.update_all_tabs(w)
+        if game_window and game_window.window:
+            game_window.update_actions_panel(w)
     
     return result
 
@@ -3090,12 +3205,10 @@ def get_healing(w: World) -> str:
         return colorize_warning("You need 5 gold for healing. Come back when you have enough.")
     
     # Confirm healing cost
-    print(colorize_command(f"Healing costs 5 gold. You have {w.player.gold} gold."))
-    print(colorize_quest(f"Restore HP from {w.player.hp} to {w.player.max_hp}?"))
-    print(colorize_command("Confirm? (y/n):"), end=" ")
-    
+    game_print(colorize_command(f"Healing costs 5 gold. You have {w.player.gold} gold."))
+    game_print(colorize_quest(f"Restore HP from {w.player.hp} to {w.player.max_hp}?"))
     try:
-        confirm = input().strip().lower()
+        confirm = game_input(colorize_command("Confirm? (y/n): ")).strip().lower()
         if confirm in ['y', 'yes']:
             w.player.gold -= 5
             w.player.hp = w.player.max_hp
@@ -3231,9 +3344,11 @@ def do_flee(w: World) -> str:
         w.monster = None
         w.player.location = "forest_path"
         
-        # Update dashboard if it's open
+        # Update dashboard and actions panel if they're open
         if TKINTER_AVAILABLE:
             game_dashboard.update_all_tabs(w)
+            if game_window and game_window.window:
+                game_window.update_actions_panel(w)
         
         return "You sprint for the exit and escape to the forest path!\n" + describe_location(w)
     # fail: take a hit
@@ -3512,9 +3627,11 @@ def parse_and_exec(w: World, raw: str) -> str:
             if achievement_notifications:
                 result += achievement_notifications
             
-            # Update dashboard if it's open
+            # Update dashboard and actions panel if they're open
             if TKINTER_AVAILABLE:
                 game_dashboard.update_all_tabs(w)
+                if game_window and game_window.window:
+                    game_window.update_actions_panel(w)
             
             return result + "\n\nYou squeeze through a gap behind the loose rocks and discover a hidden chamber!"
         
@@ -3715,6 +3832,9 @@ def repl():
                 game_window.print_to_game("")
                 game_window.print_to_game(describe_location(w))
                 
+                # Initialize actions panel
+                game_window.update_actions_panel(w)
+                
             else:
                 raise Exception("Failed to create game window")
         except Exception as e:
@@ -3763,18 +3883,18 @@ def repl():
                 elif completion_result == "__RESTART__":
                     # Restart the game
                     w = build_world()
-                    print("\n" + "=" * 60)
-                    print("NEW GAME STARTED")
-                    print("=" * 60)
-                    print("You are a wandering adventurer who has arrived in this small village.")
-                    print("The locals speak of ancient treasures and growing dangers.")
-                    print("Elder Theron lies cursed and weak, while the blacksmith seeks worthy")
-                    print("heroes. An ominous sealed tower looms over the village square.")
-                    print("\nYour journey begins now. Seek work, prove yourself, and uncover")
-                    print("the mysteries that await. Talk to the villagers to learn more.")
-                    print("\nType 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
-                    print("=" * 60)
-                    print()
+                    game_print("\n" + "=" * 60)
+                    game_print("NEW GAME STARTED")
+                    game_print("=" * 60)
+                    game_print("You are a wandering adventurer who has arrived in this small village.")
+                    game_print("The locals speak of ancient treasures and growing dangers.")
+                    game_print("Elder Theron lies cursed and weak, while the blacksmith seeks worthy")
+                    game_print("heroes. An ominous sealed tower looms over the village square.")
+                    game_print("\nYour journey begins now. Seek work, prove yourself, and uncover")
+                    game_print("the mysteries that await. Talk to the villagers to learn more.")
+                    game_print("\nType 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
+                    game_print("=" * 60)
+                    game_print()
                     game_print(describe_location(w))
                     
                     # Auto-launch dashboard on restart
@@ -3816,18 +3936,18 @@ def repl():
                 elif game_over_result == "__RESTART__":
                     # Restart the game
                     w = build_world()
-                    print("\n" + "=" * 60)
-                    print("NEW GAME STARTED")
-                    print("=" * 60)
-                    print("You are a wandering adventurer who has arrived in this small village.")
-                    print("The locals speak of ancient treasures and growing dangers.")
-                    print("Elder Theron lies cursed and weak, while the blacksmith seeks worthy")
-                    print("heroes. An ominous sealed tower looms over the village square.")
-                    print("\nYour journey begins now. Seek work, prove yourself, and uncover")
-                    print("the mysteries that await. Talk to the villagers to learn more.")
-                    print("\nType 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
-                    print("=" * 60)
-                    print()
+                    game_print("\n" + "=" * 60)
+                    game_print("NEW GAME STARTED")
+                    game_print("=" * 60)
+                    game_print("You are a wandering adventurer who has arrived in this small village.")
+                    game_print("The locals speak of ancient treasures and growing dangers.")
+                    game_print("Elder Theron lies cursed and weak, while the blacksmith seeks worthy")
+                    game_print("heroes. An ominous sealed tower looms over the village square.")
+                    game_print("\nYour journey begins now. Seek work, prove yourself, and uncover")
+                    game_print("the mysteries that await. Talk to the villagers to learn more.")
+                    game_print("\nType 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
+                    game_print("=" * 60)
+                    game_print()
                     game_print(describe_location(w))
                     continue
                 elif game_over_result.startswith("__LOAD__"):
@@ -3857,8 +3977,10 @@ def repl():
                 # Just skip regular command processing
                 continue
             
-            # Display context menu
-            game_print("\n" + display_context_menu(w))
+            # Update actions panel if using tkinter interface
+            if game_window and game_window.window:
+                game_window.update_actions_panel(w)
+            
             raw = game_input("> ")
         except EOFError:
             game_print("\nGoodbye.")
