@@ -1,0 +1,126 @@
+{
+  "config": {
+    "grid_size": [15, 11],
+    "border_style": "╭╮╰╯─│",
+    "title": "🗺️ WORLD MAP",
+    "show_captions": true
+  },
+  "locations": {
+    "village_square": {
+      "coords": [6, 4],
+      "symbol": "🏛️",
+      "name": "Village Square",
+      "caption": "Central Hub"
+    },
+    "blacksmith_shop": {
+      "coords": [3, 3],
+      "symbol": "⚒️",
+      "name": "Blacksmith Shop", 
+      "caption": "Weapons & Tools"
+    },
+    "forest_path": {
+      "coords": [9, 4],
+      "symbol": "🌲",
+      "name": "Forest Path",
+      "caption": "Wilderness Trail"
+    },
+    "iron_mine": {
+      "coords": [12, 3],
+      "symbol": "⛏️",
+      "name": "Iron Mine",
+      "caption": "Abandoned Shafts"
+    },
+    "healer_tent": {
+      "coords": [3, 5],
+      "symbol": "🏥",
+      "name": "Healer's Tent",
+      "caption": "Rest & Recovery"
+    },
+    "elder_hut": {
+      "coords": [1, 4],
+      "symbol": "🏠",
+      "name": "Elder's Hut",
+      "caption": "Ancient Wisdom"
+    },
+    "hidden_cave": {
+      "coords": [9, 7],
+      "symbol": "🕳️",
+      "name": "Hidden Cave",
+      "caption": "Secret Entrance"
+    },
+    "deep_ruins": {
+      "coords": [12, 7],
+      "symbol": "🏛️",
+      "name": "Deep Ruins",
+      "caption": "Lost Civilization"
+    },
+    "sealed_tower": {
+      "coords": [9, 1],
+      "symbol": "🗼",
+      "name": "Sealed Tower",
+      "caption": "Mysterious Spire"
+    },
+    "secret_chamber": {
+      "coords": [6, 9],
+      "symbol": "💎",
+      "name": "Secret Chamber",
+      "caption": "Hidden Treasure"
+    }
+  },
+  "connections": [
+    {
+      "from": "village_square",
+      "to": "blacksmith_shop",
+      "style": "─"
+    },
+    {
+      "from": "village_square", 
+      "to": "forest_path",
+      "style": "─"
+    },
+    {
+      "from": "village_square",
+      "to": "healer_tent", 
+      "style": "│"
+    },
+    {
+      "from": "village_square",
+      "to": "elder_hut",
+      "style": "─"
+    },
+    {
+      "from": "village_square",
+      "to": "sealed_tower",
+      "style": "│"
+    },
+    {
+      "from": "forest_path",
+      "to": "iron_mine",
+      "style": "─"
+    },
+    {
+      "from": "forest_path",
+      "to": "hidden_cave",
+      "style": "│"
+    },
+    {
+      "from": "hidden_cave",
+      "to": "deep_ruins", 
+      "style": "─"
+    },
+    {
+      "from": "hidden_cave",
+      "to": "secret_chamber",
+      "style": "│"
+    }
+  ],
+  "legend": {
+    "current_location": "[🏛️] = Your Current Location",
+    "explored_area": " 🏛️  = Explored Area", 
+    "unexplored_area": " ?  = Unexplored Area"
+  },
+  "compass": {
+    "enabled": true,
+    "style": "   N\n W ⊕ E\n   S"
+  }
+}

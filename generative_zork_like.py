@@ -32,6 +32,13 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 try:
+    import tkinter as tk
+    from tkinter import font
+    TKINTER_AVAILABLE = True
+except ImportError:
+    TKINTER_AVAILABLE = False
+
+try:
     from colorama import init, Fore, Back, Style
     init(autoreset=True)  # Auto-reset colors after each print
     COLORS_AVAILABLE = True
@@ -266,6 +273,114 @@ class MusicManager:
 # Global music manager instance
 music_manager = MusicManager()
 
+# ---------- Map Window Class ----------
+class MapWindow:
+    """Separate window for displaying ASCII world map"""
+    
+    def __init__(self):
+        self.root = None
+        self.window = None
+        self.text_widget = None
+        
+    def create_window(self):
+        """Create the map window if it doesn't exist"""
+        if not TKINTER_AVAILABLE:
+            return False
+        
+        # Create root window if it doesn't exist
+        if self.root is None:
+            self.root = tk.Tk()
+            self.root.withdraw()  # Hide the root window
+            
+        if self.window is not None:
+            # Window already exists, just bring it to front
+            try:
+                self.window.lift()
+                self.window.focus_force()
+                return True
+            except tk.TclError:
+                # Window was destroyed, create new one
+                self.window = None
+                
+        self.window = tk.Toplevel(self.root)
+        self.window.title("🗺️ World Map - Zork Adventure")
+        self.window.geometry("800x600")
+        self.window.configure(bg='black')
+        
+        # Create text widget with monospace font
+        self.text_widget = tk.Text(
+            self.window,
+            bg='black',
+            fg='white',
+            font=('Courier New', 10),
+            wrap=tk.NONE,
+            state=tk.DISABLED,
+            padx=10,
+            pady=10
+        )
+        
+        # Add scrollbars
+        v_scrollbar = tk.Scrollbar(self.window, orient=tk.VERTICAL, command=self.text_widget.yview)
+        h_scrollbar = tk.Scrollbar(self.window, orient=tk.HORIZONTAL, command=self.text_widget.xview)
+        self.text_widget.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        # Pack scrollbars and text widget
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Handle window close
+        self.window.protocol("WM_DELETE_WINDOW", self.hide_window)
+        
+        return True
+    
+    def show_map(self, map_content: str):
+        """Display map content in the window"""
+        if not self.create_window():
+            return False
+            
+        # Enable editing, clear content, insert new content
+        self.text_widget.configure(state=tk.NORMAL)
+        self.text_widget.delete(1.0, tk.END)
+        
+        # Insert content directly (it should already be clean of ANSI codes)
+        self.text_widget.insert(1.0, map_content)
+        
+        # Disable editing and scroll to top
+        self.text_widget.configure(state=tk.DISABLED)
+        self.text_widget.see(1.0)
+        
+        return True
+    
+    def _strip_ansi_codes(self, text: str) -> str:
+        """Remove ANSI color codes from text"""
+        import re
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        return ansi_escape.sub('', text)
+    
+    def hide_window(self):
+        """Hide the map window"""
+        if self.window:
+            self.window.withdraw()
+    
+    def is_visible(self) -> bool:
+        """Check if window is currently visible"""
+        if not self.window:
+            return False
+        try:
+            return self.window.winfo_viewable()
+        except tk.TclError:
+            return False
+    
+    def update_map(self, w: "World"):
+        """Update the map content if window is open and visible"""
+        if self.is_visible():
+            map_content = get_world_map(w, no_colors=True)
+            self.show_map(map_content)
+
+# Create global map window instance
+map_window = MapWindow()
+
 # ---------- Color utilities ----------
 def colorize_npc(text: str) -> str:
     """Color NPC names and dialogue"""
@@ -492,7 +607,8 @@ def get_mini_map(w: "World") -> str:
         "elder_hut": (1, 2),
         "hidden_cave": (6, 4),
         "deep_ruins": (8, 4),
-        "sealed_tower": (6, 0)
+        "sealed_tower": (6, 0),
+        "secret_chamber": (4, 5)
     }
     
     # Location symbols
@@ -505,11 +621,12 @@ def get_mini_map(w: "World") -> str:
         "elder_hut": "🏠",
         "hidden_cave": "🕳️",
         "deep_ruins": "🏛️",
-        "sealed_tower": "🗼"
+        "sealed_tower": "🗼",
+        "secret_chamber": "💎"
     }
     
-    # Create 10x6 grid
-    grid = [["  " for _ in range(10)] for _ in range(6)]
+    # Create 10x7 grid to accommodate secret_chamber
+    grid = [["  " for _ in range(10)] for _ in range(7)]
     
     # Place explored locations
     for location in w.player.explored_areas:
@@ -531,7 +648,8 @@ def get_mini_map(w: "World") -> str:
         ("village_square", "sealed_tower", "│"),
         ("forest_path", "iron_mine", "─"),
         ("forest_path", "hidden_cave", "│"),
-        ("hidden_cave", "deep_ruins", "─")
+        ("hidden_cave", "deep_ruins", "─"),
+        ("hidden_cave", "secret_chamber", "│")
     ]
     
     for loc1, loc2, connector in connections:
@@ -550,12 +668,193 @@ def get_mini_map(w: "World") -> str:
                         grid[y][x1] = "│"
     
     # Convert grid to string
-    map_str = colorize_command("🗺️ MINI-MAP") + f" ({len(w.player.explored_areas)}/9 areas)\n"
+    map_str = colorize_command("🗺️ MINI-MAP") + f" ({len(w.player.explored_areas)}/10 areas)\n"
     map_str += "╭" + "─" * 20 + "╮\n"
     for row in grid:
         map_str += "│" + "".join(row) + "│\n"
     map_str += "╰" + "─" * 20 + "╯\n"
     map_str += colorize_success("[🏛️]") + " = Current Location"
+    
+    return map_str
+
+def load_map_config():
+    """Load world map configuration from JSON file"""
+    try:
+        config_path = Path(__file__).parent / "world_map.json"
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Warning: Could not load world_map.json: {e}")
+    
+    # Fallback to hardcoded config if file loading fails
+    return {
+        "config": {"grid_size": [15, 11], "show_captions": False},
+        "locations": {
+            "village_square": {"coords": [6, 4], "symbol": "🏛️", "name": "Village Square", "caption": ""},
+            "blacksmith_shop": {"coords": [3, 3], "symbol": "⚒️", "name": "Blacksmith Shop", "caption": ""},
+            "forest_path": {"coords": [9, 4], "symbol": "🌲", "name": "Forest Path", "caption": ""},
+            "iron_mine": {"coords": [12, 3], "symbol": "⛏️", "name": "Iron Mine", "caption": ""},
+            "healer_tent": {"coords": [3, 5], "symbol": "🏥", "name": "Healer's Tent", "caption": ""},
+            "elder_hut": {"coords": [1, 4], "symbol": "🏠", "name": "Elder's Hut", "caption": ""},
+            "hidden_cave": {"coords": [9, 7], "symbol": "🕳️", "name": "Hidden Cave", "caption": ""},
+            "deep_ruins": {"coords": [12, 7], "symbol": "🏛️", "name": "Deep Ruins", "caption": ""},
+            "sealed_tower": {"coords": [9, 1], "symbol": "🗼", "name": "Sealed Tower", "caption": ""},
+            "secret_chamber": {"coords": [6, 9], "symbol": "💎", "name": "Secret Chamber", "caption": ""}
+        },
+        "connections": [
+            {"from": "village_square", "to": "blacksmith_shop", "style": "─"},
+            {"from": "village_square", "to": "forest_path", "style": "─"},
+            {"from": "village_square", "to": "healer_tent", "style": "│"},
+            {"from": "village_square", "to": "elder_hut", "style": "─"},
+            {"from": "village_square", "to": "sealed_tower", "style": "│"},
+            {"from": "forest_path", "to": "iron_mine", "style": "─"},
+            {"from": "forest_path", "to": "hidden_cave", "style": "│"},
+            {"from": "hidden_cave", "to": "deep_ruins", "style": "─"},
+            {"from": "hidden_cave", "to": "secret_chamber", "style": "│"}
+        ]
+    }
+
+def get_world_map(w: "World", no_colors: bool = False) -> str:
+    """Generate a comprehensive ASCII world map showing all locations"""
+    
+    # Load configuration from JSON file
+    map_config = load_map_config()
+    
+    config = map_config.get("config", {})
+    locations_data = map_config.get("locations", {})
+    connections_data = map_config.get("connections", [])
+    
+    # Get grid size from config
+    grid_width, grid_height = config.get("grid_size", [15, 11])
+    
+    # Create grid based on config
+    grid = [["   " for _ in range(grid_width)] for _ in range(grid_height)]
+    
+    # Place all locations (explored and unexplored)
+    for location_key, location_info in locations_data.items():
+        x, y = location_info.get("coords", [0, 0])
+        symbol = location_info.get("symbol", "❓")
+        
+        if location_key in w.player.explored_areas:
+            if location_key == w.player.location:
+                # Current location - bright highlight
+                if no_colors:
+                    grid[y][x] = f"[{symbol}]"
+                else:
+                    grid[y][x] = colorize_success(f"[{symbol}]")
+            else:
+                # Explored location
+                if no_colors:
+                    grid[y][x] = f" {symbol} "
+                else:
+                    grid[y][x] = colorize_item(f" {symbol} ")
+        else:
+            # Unexplored location - dimmed
+            if no_colors:
+                grid[y][x] = " ? "
+            else:
+                grid[y][x] = colorize_warning(" ? ")
+    
+    # Add connection paths for explored areas
+    for connection in connections_data:
+        loc1 = connection.get("from")
+        loc2 = connection.get("to") 
+        connector = connection.get("style", "─")
+        
+        if (loc1 in w.player.explored_areas and loc2 in w.player.explored_areas and
+            loc1 in locations_data and loc2 in locations_data):
+            
+            x1, y1 = locations_data[loc1].get("coords", [0, 0])
+            x2, y2 = locations_data[loc2].get("coords", [0, 0])
+            
+            # Add connection line
+            if connector == "─":  # horizontal
+                for x in range(min(x1, x2) + 1, max(x1, x2)):
+                    if grid[y1][x] == "   ":
+                        grid[y1][x] = " ─ "
+            elif connector == "│":  # vertical
+                for y in range(min(y1, y2) + 1, max(y1, y2)):
+                    if grid[y][x1] == "   ":
+                        grid[y][x1] = " │ "
+    
+    # Create the map display
+    title = config.get("title", "🗺️ WORLD MAP")
+    total_locations = len(locations_data)
+    
+    if no_colors:
+        map_str = f"\n{title} — Explored: {len(w.player.explored_areas)}/{total_locations} locations\n"
+    else:
+        map_str = "\n" + colorize_command(title) + f" — Explored: {len(w.player.explored_areas)}/{total_locations} locations\n"
+    
+    # Dynamic border width based on grid size
+    border_width = grid_width * 3 + 2  # Account for 3-char cells plus padding
+    map_str += "╭" + "─" * border_width + "╮\n"
+    
+    for row in grid:
+        map_str += "│" + "".join(row) + "│\n"
+    
+    map_str += "╰" + "─" * border_width + "╯\n"
+    
+    # Add location captions if enabled
+    if config.get("show_captions", True):
+        map_str += "\nLOCATION DETAILS:\n"
+        for location_key in w.player.explored_areas:
+            if location_key in locations_data:
+                location_info = locations_data[location_key]
+                name = location_info.get("name", location_key)
+                caption = location_info.get("caption", "")
+                symbol = location_info.get("symbol", "?")
+                
+                if location_key == w.player.location:
+                    if no_colors:
+                        prefix = f"[{symbol}] "
+                    else:
+                        prefix = colorize_success(f"[{symbol}] ")
+                else:
+                    if no_colors:
+                        prefix = f" {symbol}  "
+                    else:
+                        prefix = colorize_item(f" {symbol}  ")
+                
+                if caption:
+                    map_str += f"{prefix}{name} — {caption}\n"
+                else:
+                    map_str += f"{prefix}{name}\n"
+    
+    # Add legend from config
+    legend_config = map_config.get("legend", {})
+    if legend_config:
+        if no_colors:
+            map_str += "\nLEGEND:\n"
+        else:
+            map_str += "\n" + colorize_command("LEGEND:") + "\n"
+        
+        for legend_key, legend_text in legend_config.items():
+            if no_colors:
+                map_str += legend_text + "\n"
+            else:
+                if "Current Location" in legend_text:
+                    map_str += colorize_success(legend_text.replace("[🏛️]", "[🏛️]")) + "\n"
+                elif "Explored Area" in legend_text:
+                    map_str += colorize_item(legend_text.replace(" 🏛️ ", " 🏛️ ")) + "\n"
+                elif "Unexplored Area" in legend_text:
+                    map_str += colorize_warning(legend_text.replace(" ? ", " ? ")) + "\n"
+                else:
+                    map_str += legend_text + "\n"
+    
+    # Add compass from config
+    compass_config = map_config.get("compass", {})
+    if compass_config.get("enabled", True):
+        compass_style = compass_config.get("style", "   N\n W ⊕ E\n   S")
+        if no_colors:
+            map_str += "\n" + compass_style + "\n"
+        else:
+            # Apply colors to compass directions
+            colored_compass = compass_style
+            for direction in ["N", "E", "S", "W"]:
+                colored_compass = colored_compass.replace(direction, colorize_command(direction))
+            map_str += "\n" + colored_compass + "\n"
     
     return map_str
 
@@ -573,7 +872,7 @@ ACHIEVEMENTS = {
     },
     "completionist": {
         "name": "Completionist", 
-        "description": "Visit all 9 locations",
+        "description": "Visit all 10 locations",
         "icon": "🌍"
     },
     "rich_merchant": {
@@ -627,8 +926,8 @@ def check_achievements(w: "World") -> List[str]:
         w.player.achievements.append("explorer")
         new_achievements.append("explorer")
     
-    # Completionist - visit all 9 locations
-    if "completionist" not in w.player.achievements and len(w.player.explored_areas) >= 9:
+    # Completionist - visit all 10 locations
+    if "completionist" not in w.player.achievements and len(w.player.explored_areas) >= 10:
         w.player.achievements.append("completionist")
         new_achievements.append("completionist")
     
@@ -1957,6 +2256,10 @@ def move_player(w: World, dest_key: str) -> str:
     if achievement_notifications:
         result += achievement_notifications
     
+    # Update map window if it's open
+    if TKINTER_AVAILABLE:
+        map_window.update_map(w)
+    
     return result
 
 def take_item(w: World, item: str) -> str:
@@ -2533,6 +2836,11 @@ def do_flee(w: World) -> str:
         # Clear current monster (random encounters can be lost)
         w.monster = None
         w.player.location = "forest_path"
+        
+        # Update map window if it's open
+        if TKINTER_AVAILABLE:
+            map_window.update_map(w)
+        
         return "You sprint for the exit and escape to the forest path!\n" + describe_location(w)
     # fail: take a hit
     mon = w.monster
@@ -2758,6 +3066,8 @@ HELP = (
 "  heal (get healing at healer's tent)\n"
 "  quests\n"
 "  map (show explored areas)\n"
+"  worldmap (open world map in separate window)\n"
+"  hidemap/closemap (hide map window)\n"
 "  achievements (show progress)\n"
 "  relationships (show NPC status)\n"
 "  save [name] / load [name]\n"
@@ -2807,6 +3117,10 @@ def parse_and_exec(w: World, raw: str) -> str:
             result = describe_location(w)
             if achievement_notifications:
                 result += achievement_notifications
+            
+            # Update map window if it's open
+            if TKINTER_AVAILABLE:
+                map_window.update_map(w)
             
             return result + "\n\nYou squeeze through a gap behind the loose rocks and discover a hidden chamber!"
         
@@ -2936,6 +3250,25 @@ def parse_and_exec(w: World, raw: str) -> str:
     # map
     if low in ["map", "m"]:
         return get_mini_map(w)
+    
+    # world map - comprehensive view in separate window
+    if low in ["worldmap", "world", "fullmap"]:
+        if not TKINTER_AVAILABLE:
+            return colorize_warning("⚠️ Cannot open map window: tkinter not available. Use 'map' for text view.")
+        
+        map_content = get_world_map(w, no_colors=True)
+        if map_window.show_map(map_content):
+            return colorize_success("🗺️ World map opened in separate window!")
+        else:
+            return colorize_error("❌ Failed to open map window. Use 'map' for text view.")
+    
+    # map window management
+    if low in ["hidemap", "closemap"]:
+        if TKINTER_AVAILABLE and map_window.is_visible():
+            map_window.hide_window()
+            return colorize_success("🗺️ Map window hidden.")
+        else:
+            return colorize_warning("⚠️ No map window is currently open.")
     
     # achievements  
     if low in ["achievements", "ach"]:
