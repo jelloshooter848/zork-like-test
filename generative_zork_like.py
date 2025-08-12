@@ -256,6 +256,56 @@ class MusicManager:
             self.stop_current_track()
         return self.enabled
     
+    def restart_music(self):
+        """Restart the music system - useful after crashes"""
+        try:
+            # Stop any current music
+            self.stop_current_track()
+            
+            # Re-initialize pygame mixer if needed
+            if AUDIO_BACKEND == "pygame":
+                try:
+                    if pygame.mixer.get_init():
+                        pygame.mixer.quit()
+                    pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+                except Exception as e:
+                    return f"❌ Failed to restart pygame mixer: {e}"
+            
+            # Clear current state
+            self.current_track = None
+            self.current_category = None
+            self.stop_music = False
+            
+            # Resume appropriate music based on current context
+            # If in combat, play combat music; otherwise play location music
+            if hasattr(w, 'flags') and w.flags.get("in_combat"):
+                # Check if it's a boss fight
+                is_boss = (hasattr(w, 'active_monster') and w.active_monster and 
+                          getattr(w.active_monster, 'hp', 0) >= 50)
+                self.play_combat_music(is_boss=is_boss)
+            elif hasattr(w, 'player') and w.player.location:
+                self.play_location_music(w.player.location)
+            
+            return "🎵 Music system restarted successfully"
+            
+        except Exception as e:
+            return f"❌ Failed to restart music system: {e}"
+    
+    def is_music_playing(self):
+        """Check if music is actually playing (not just enabled)"""
+        if not self.enabled or not AUDIO_AVAILABLE:
+            return False
+            
+        if AUDIO_BACKEND == "pygame":
+            try:
+                return pygame.mixer.music.get_busy()
+            except:
+                return False
+        elif AUDIO_BACKEND in ["playsound", "winsound"]:
+            return self.music_thread and self.music_thread.is_alive()
+        
+        return False
+    
     def get_status(self):
         """Get current music status"""
         if not AUDIO_AVAILABLE:
@@ -263,10 +313,13 @@ class MusicManager:
         elif not self.enabled:
             return "🔇 Music disabled"
         elif self.current_track:
+            playing_status = "🎵" if self.is_music_playing() else "⏸️"
             if "(missing)" in self.current_track:
                 return f"🎵 Would play: {self.current_track.replace(' (missing)', '')} ({self.current_category}) - File not found"
+            elif "(error)" in self.current_track:
+                return f"❌ Error with: {self.current_track.replace(' (error)', '')} ({self.current_category}) - Try 'music restart'"
             else:
-                return f"🎵 Playing: {self.current_track} ({self.current_category})"
+                return f"{playing_status} {self.current_track} ({self.current_category})"
         else:
             return "🎵 Music enabled, no track playing"
 
@@ -543,15 +596,20 @@ class GameWindow:
         self.input_field = None
         self.actions_frame = None
         self.actions_label = None
+        # Dashboard components integrated into game window
+        self.notebook = None
+        self.tabs = {}
+        self.last_selected_tab = 0
         self.command_history = []
         self.history_index = -1
         self.waiting_for_input = False
         self.input_result = None
-        self.window_width = 800
+        # Wider window for unified layout
+        self.window_width = 1200
         self.window_height = 700
         
     def calculate_game_window_position(self):
-        """Calculate position for game window (left side)"""
+        """Calculate position for unified game window (centered)"""
         try:
             if not self.root:
                 temp_root = tk.Tk()
@@ -563,16 +621,16 @@ class GameWindow:
                 screen_width = self.root.winfo_screenwidth()
                 screen_height = self.root.winfo_screenheight()
             
-            # Position game window on left side
-            game_x = 50  # Left margin
-            game_y = 50  # Top margin
+            # Calculate optimal width for unified layout (about 80% of screen)
+            self.window_width = min(1200, int(screen_width * 0.8))
             
-            # Calculate optimal width (about 45% of screen width)
-            self.window_width = min(800, int(screen_width * 0.45))
-            
-            # Calculate height to match dashboard
-            available_height = screen_height - game_y - 100
+            # Calculate height
+            available_height = screen_height - 100
             self.window_height = min(700, available_height)
+            
+            # Center the window
+            game_x = (screen_width - self.window_width) // 2
+            game_y = (screen_height - self.window_height) // 2
             
             return game_x, game_y
             
@@ -581,14 +639,14 @@ class GameWindow:
             return 50, 50
     
     def create_window(self):
-        """Create the main game window"""
+        """Create the unified game window with integrated dashboard"""
         if not TKINTER_AVAILABLE:
             return False
             
         # Create root window if it doesn't exist
         if self.root is None:
             self.root = tk.Tk()
-            self.root.title("🎮 Zork Adventure - Main Game")
+            self.root.title("🎮 Zork Adventure - Unified Interface")
             
             # Calculate position
             pos_x, pos_y = self.calculate_game_window_position()
@@ -600,15 +658,29 @@ class GameWindow:
         else:
             return True
         
-        # Create main frame
-        main_frame = tk.Frame(self.window, bg='black')
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Create main horizontal split container
+        main_container = tk.Frame(self.window, bg='black')
+        main_container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Create left panel for game content (60% width)
+        left_panel = tk.Frame(main_container, bg='black')
+        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5, 2))
+        
+        # Create right panel for dashboard (40% width)  
+        right_panel = tk.Frame(main_container, bg='black', width=int(self.window_width * 0.4))
+        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(2, 5))
+        right_panel.pack_propagate(False)  # Maintain fixed width
+        
+        # === LEFT PANEL: Game Content ===
+        # Create text area frame with scrollbar
+        text_frame = tk.Frame(left_panel, bg='black')
+        text_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
         
         # Create text area for game output
         self.text_area = tk.Text(
-            main_frame,
+            text_frame,
             bg='black',
-            fg='green',  # Classic terminal green
+            fg='green',
             font=('Courier New', 11),
             wrap=tk.WORD,
             state=tk.DISABLED,
@@ -617,7 +689,7 @@ class GameWindow:
         )
         
         # Create scrollbar for text area
-        scrollbar = tk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.text_area.yview)
+        scrollbar = tk.Scrollbar(text_frame, orient=tk.VERTICAL, command=self.text_area.yview)
         self.text_area.configure(yscrollcommand=scrollbar.set)
         
         # Pack text area and scrollbar
@@ -625,8 +697,8 @@ class GameWindow:
         self.text_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         # Create input frame
-        input_frame = tk.Frame(self.window, bg='black')
-        input_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        input_frame = tk.Frame(left_panel, bg='black')
+        input_frame.pack(fill=tk.X, pady=(0, 5))
         
         # Create prompt label
         prompt_label = tk.Label(
@@ -657,9 +729,9 @@ class GameWindow:
         self.input_field.bind('<Up>', self.on_up_arrow)
         self.input_field.bind('<Down>', self.on_down_arrow)
         
-        # Create actions panel below input
-        self.actions_frame = tk.Frame(self.window, bg='black')
-        self.actions_frame.pack(fill=tk.X, padx=10, pady=(5, 10))
+        # Create actions panel
+        self.actions_frame = tk.Frame(left_panel, bg='black')
+        self.actions_frame.pack(fill=tk.X)
         
         # Create actions display
         self.actions_label = tk.Label(
@@ -667,14 +739,17 @@ class GameWindow:
             text="",
             bg='black',
             fg='green',
-            font=('Courier New', 10),  # Slightly larger for better readability
+            font=('Courier New', 10),
             justify=tk.LEFT,
-            anchor='nw',  # Align to top-left for multi-line text
-            wraplength=0,  # Disable wrapping since we handle formatting manually
-            width=0,  # Auto-size width
-            pady=5  # Add some vertical padding
+            anchor='nw',
+            wraplength=0,
+            width=0,
+            pady=5
         )
         self.actions_label.pack(fill=tk.X)
+        
+        # === RIGHT PANEL: Dashboard ===
+        self.create_integrated_dashboard(right_panel)
         
         # Focus on input field
         self.input_field.focus()
@@ -683,6 +758,110 @@ class GameWindow:
         self.window.protocol("WM_DELETE_WINDOW", self.on_close)
         
         return True
+    
+    def create_integrated_dashboard(self, parent):
+        """Create the integrated dashboard in the right panel"""
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(parent)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Create tabs
+        tab_configs = [
+            ("🗺️ Map", "map"),
+            ("📦 Inventory", "inventory"), 
+            ("📋 Quests", "quests"),
+            ("🏆 Achievements", "achievements"),
+            ("👥 Relations", "relationships")
+        ]
+        
+        for tab_title, tab_key in tab_configs:
+            # Create frame for tab
+            frame = tk.Frame(self.notebook, bg='black')
+            
+            # Create text widget with scrollbars
+            text_widget = tk.Text(
+                frame,
+                bg='black',
+                fg='white',
+                font=('Courier New', 9),  # Slightly smaller for dashboard
+                wrap=tk.NONE,
+                state=tk.DISABLED,
+                padx=5,
+                pady=5
+            )
+            
+            # Add scrollbars
+            v_scrollbar = tk.Scrollbar(frame, orient=tk.VERTICAL, command=text_widget.yview)
+            h_scrollbar = tk.Scrollbar(frame, orient=tk.HORIZONTAL, command=text_widget.xview)
+            text_widget.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+            
+            # Pack scrollbars and text widget
+            v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+            text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            
+            # Store tab info
+            self.tabs[tab_key] = {
+                'frame': frame,
+                'text_widget': text_widget,
+                'title': tab_title
+            }
+            
+            # Add tab to notebook
+            self.notebook.add(frame, text=tab_title)
+        
+        # Bind tab change event
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        
+        # Restore last selected tab
+        if self.last_selected_tab < len(self.tabs):
+            self.notebook.select(self.last_selected_tab)
+    
+    def on_tab_changed(self, event):
+        """Handle tab change events"""
+        self.last_selected_tab = self.notebook.index(self.notebook.select())
+    
+    def update_dashboard_tab(self, tab_key: str, content: str):
+        """Update content of a specific dashboard tab"""
+        if tab_key not in self.tabs:
+            return False
+            
+        text_widget = self.tabs[tab_key]['text_widget']
+        
+        # Enable editing, clear content, insert new content
+        text_widget.configure(state=tk.NORMAL)
+        text_widget.delete(1.0, tk.END)
+        
+        # Strip ANSI codes and insert content
+        clean_content = self._strip_ansi_codes(content)
+        text_widget.insert(1.0, clean_content)
+        
+        # Disable editing and scroll to top
+        text_widget.configure(state=tk.DISABLED)
+        text_widget.see(1.0)
+        
+        return True
+    
+    def update_all_dashboard_tabs(self, w: "World"):
+        """Update content for all dashboard tabs"""
+        if not self.tabs:
+            return
+            
+        # Update each tab with current game data
+        try:
+            self.update_dashboard_tab("map", get_world_map(w, no_colors=True))
+            self.update_dashboard_tab("inventory", show_enhanced_inventory(w))
+            self.update_dashboard_tab("quests", quests(w))
+            self.update_dashboard_tab("achievements", show_achievements_list(w))
+            self.update_dashboard_tab("relationships", show_relationships(w))
+        except Exception as e:
+            print(f"[debug] Dashboard tab update error: {e}")
+    
+    def _strip_ansi_codes(self, text: str) -> str:
+        """Remove ANSI color codes from text"""
+        import re
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        return ansi_escape.sub('', text)
     
     def print_to_game(self, text: str):
         """Print text to the game window"""
@@ -2764,10 +2943,9 @@ def move_player(w: World, dest_key: str) -> str:
         result += achievement_notifications
     
     # Update dashboard and actions panel if they're open
-    if TKINTER_AVAILABLE:
-        game_dashboard.update_all_tabs(w)
-        if game_window and game_window.window:
-            game_window.update_actions_panel(w)
+    if TKINTER_AVAILABLE and game_window and game_window.window:
+        game_window.update_all_dashboard_tabs(w)
+        game_window.update_actions_panel(w)
     
     return result
 
@@ -3575,8 +3753,7 @@ HELP = (
 "  heal (get healing at healer's tent)\n"
 "  quests\n"
 "  map (show explored areas)\n"
-"  worldmap/dashboard (open game dashboard with tabs)\n"
-"  hidemap/closemap (hide dashboard window)\n"
+"  worldmap/dashboard (update integrated dashboard tabs)\n"
 "  achievements (show progress)\n"
 "  relationships (show NPC status)\n"
 "  save [name] / load [name]\n"
@@ -3762,23 +3939,21 @@ def parse_and_exec(w: World, raw: str) -> str:
     if low in ["map", "m"]:
         return get_mini_map(w)
     
-    # world map - comprehensive dashboard in separate window
+    # world map - dashboard is integrated in unified interface
     if low in ["worldmap", "world", "fullmap", "dashboard"]:
-        if not TKINTER_AVAILABLE:
-            return colorize_warning("⚠️ Cannot open dashboard: tkinter not available. Use 'map' for text view.")
+        if not TKINTER_AVAILABLE or not game_window or not game_window.window:
+            return colorize_warning("⚠️ Dashboard is integrated in the unified interface. Use 'map' for text view.")
         
-        if game_dashboard.show_dashboard(w):
-            return colorize_success("🎮 Game dashboard opened in separate window!")
-        else:
-            return colorize_error("❌ Failed to open dashboard. Use 'map' for text view.")
+        # Dashboard is always visible in unified interface, just update it
+        game_window.update_all_dashboard_tabs(w)
+        return colorize_success("🎮 Dashboard updated! Check the tabs on the right side of the interface.")
     
-    # dashboard window management
+    # dashboard commands no longer needed in unified interface
     if low in ["hidemap", "closemap", "hidedashboard", "closedashboard"]:
-        if TKINTER_AVAILABLE and game_dashboard.is_visible():
-            game_dashboard.hide_window()
-            return colorize_success("🎮 Dashboard window hidden.")
+        if TKINTER_AVAILABLE and game_window and game_window.window:
+            return colorize_success("💡 Dashboard is integrated in the unified interface and always visible.")
         else:
-            return colorize_warning("⚠️ No dashboard window is currently open.")
+            return colorize_warning("⚠️ Dashboard is integrated in the unified interface.")
     
     # achievements  
     if low in ["achievements", "ach"]:
@@ -3812,9 +3987,6 @@ def repl():
             if game_window.create_window():
                 use_tkinter_interface = True
                 
-                # Auto-launch dashboard with optimal positioning
-                game_dashboard.show_dashboard(w)
-                
                 # Print initial game text to game window
                 game_window.print_to_game("=" * 60)
                 game_window.print_to_game("WELCOME TO THE VILLAGE OF THERON")
@@ -3832,8 +4004,9 @@ def repl():
                 game_window.print_to_game("")
                 game_window.print_to_game(describe_location(w))
                 
-                # Initialize actions panel
+                # Initialize actions panel and dashboard
                 game_window.update_actions_panel(w)
+                game_window.update_all_dashboard_tabs(w)
                 
             else:
                 raise Exception("Failed to create game window")
@@ -3864,14 +4037,8 @@ def repl():
         print()
         game_print(describe_location(w))
         
-        # Try to auto-launch dashboard if tkinter is available
-        if TKINTER_AVAILABLE:
-            try:
-                game_dashboard.show_dashboard(w)
-                print(colorize_success("🎮 Game dashboard automatically opened!"))
-            except Exception as e:
-                print(f"[info] Dashboard auto-launch failed: {e}")
-                print("[info] Use 'worldmap' or 'dashboard' command to open manually.")
+        # Dashboard is not available in terminal fallback mode
+        print("[info] Dashboard not available in terminal mode. Use individual commands like 'map', 'inventory', etc.")
     
     while True:
         try:
@@ -3897,14 +4064,9 @@ def repl():
                     game_print()
                     game_print(describe_location(w))
                     
-                    # Auto-launch dashboard on restart
-                    if TKINTER_AVAILABLE:
-                        try:
-                            game_dashboard.show_dashboard(w)
-                            print(colorize_success("🎮 Game dashboard automatically opened!"))
-                        except Exception as e:
-                            print(f"[info] Dashboard auto-launch failed: {e}")
-                            print("[info] Use 'worldmap' or 'dashboard' command to open manually.")
+                    # Update integrated dashboard on restart
+                    if TKINTER_AVAILABLE and game_window and game_window.window:
+                        game_window.update_all_dashboard_tabs(w)
                     
                     continue
                 elif completion_result.startswith("__LOAD__"):

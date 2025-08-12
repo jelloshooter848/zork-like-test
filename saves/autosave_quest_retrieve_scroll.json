@@ -1,0 +1,268 @@
+{
+  "player": {
+    "location": "deep_ruins",
+    "inventory": [
+      "rusty_sword",
+      "magical_amulet",
+      "elder_sword",
+      "ancient_scroll"
+    ],
+    "quests": {
+      "prove_worth": "not_started",
+      "clear_cave": "completed",
+      "heal_elder": "completed",
+      "retrieve_scroll": "completed",
+      "forge_key": "not_started",
+      "final_treasure": "not_started",
+      "lost_trinket": "completed"
+    },
+    "gold": 57,
+    "hp": 7,
+    "max_hp": 25,
+    "previous_location": "hidden_cave",
+    "explored_areas": [
+      "village_square",
+      "blacksmith_shop",
+      "forest_path",
+      "hidden_cave",
+      "elder_hut",
+      "healer_tent",
+      "secret_chamber",
+      "deep_ruins"
+    ],
+    "achievements": [
+      "first_steps",
+      "warrior",
+      "quest_starter",
+      "explorer",
+      "trinket_returner",
+      "secret_keeper"
+    ],
+    "equipment": {
+      "weapon": "elder_sword",
+      "armor": null,
+      "accessory": null
+    }
+  },
+  "locations": {
+    "village_square": {
+      "key": "village_square",
+      "description": "Village Square \u2014 smithy smoke curls into the sky. A forest path leads north. An ancient tower looms to the east.",
+      "exits": [
+        "blacksmith_shop",
+        "forest_path",
+        "elder_hut",
+        "sealed_tower",
+        "healer_tent"
+      ],
+      "npcs": [
+        "wanderer"
+      ],
+      "items": [],
+      "visited": true
+    },
+    "blacksmith_shop": {
+      "key": "blacksmith_shop",
+      "description": "Blacksmith Shop \u2014 heat and hammering. Tools line the walls.",
+      "exits": [
+        "village_square"
+      ],
+      "npcs": [
+        "blacksmith"
+      ],
+      "items": [],
+      "visited": true
+    },
+    "forest_path": {
+      "key": "forest_path",
+      "description": "Forest Path \u2014 tall pines, damp earth. A narrow track disappears into darker woods.",
+      "exits": [
+        "village_square",
+        "hidden_cave",
+        "iron_mine"
+      ],
+      "npcs": [],
+      "items": [],
+      "visited": true
+    },
+    "iron_mine": {
+      "key": "iron_mine",
+      "description": "Iron Mine \u2014 abandoned shafts echo with your footsteps. Rusty ore glints in the dim light.",
+      "exits": [
+        "forest_path"
+      ],
+      "npcs": [
+        "miner"
+      ],
+      "items": [
+        "iron_ore"
+      ],
+      "visited": false
+    },
+    "healer_tent": {
+      "key": "healer_tent",
+      "description": "Healer's Tent \u2014 soft candlelight illuminates shelves of herbs and potions. The scent of healing oils fills the air.",
+      "exits": [
+        "village_square"
+      ],
+      "npcs": [
+        "healer"
+      ],
+      "items": [],
+      "visited": true
+    },
+    "elder_hut": {
+      "key": "elder_hut",
+      "description": "Elder's Hut \u2014 a modest dwelling filled with ancient books and herbs. The Elder lies pale in bed.",
+      "exits": [
+        "village_square"
+      ],
+      "npcs": [
+        "elder"
+      ],
+      "items": [],
+      "visited": true
+    },
+    "hidden_cave": {
+      "key": "hidden_cave",
+      "description": "Hidden Cave \u2014 your footsteps echo; the air is cool and still. You notice a faint draft coming from behind some loose rocks.",
+      "exits": [
+        "forest_path",
+        "deep_ruins"
+      ],
+      "npcs": [],
+      "items": [],
+      "visited": true
+    },
+    "deep_ruins": {
+      "key": "deep_ruins",
+      "description": "Deep Ruins \u2014 ancient stone corridors carved with mysterious symbols. The air hums with old magic.",
+      "exits": [
+        "hidden_cave"
+      ],
+      "npcs": [],
+      "items": [],
+      "visited": true
+    },
+    "sealed_tower": {
+      "key": "sealed_tower",
+      "description": "Sealed Tower \u2014 a massive door blocks your way, covered in arcane locks. Beyond lies untold treasure.",
+      "exits": [
+        "village_square"
+      ],
+      "npcs": [],
+      "items": [],
+      "visited": false
+    },
+    "secret_chamber": {
+      "key": "secret_chamber",
+      "description": "Secret Chamber \u2014 a small hidden room behind the cave wall. Ancient symbols glow faintly on the walls, and you see something glinting in an alcove.",
+      "exits": [
+        "hidden_cave"
+      ],
+      "npcs": [],
+      "items": [],
+      "visited": true
+    }
+  },
+  "npcs": {
+    "blacksmith": {
+      "key": "blacksmith",
+      "name": "Rogan the Blacksmith",
+      "personality": "Gruff but helpful, secretly fond of gossip.",
+      "memory": [
+        "Met the player in the village square.",
+        "Heard rumors of a lost gem in the cave.",
+        "Sold rusty_sword to player for 10 gold at blacksmith_shop"
+      ],
+      "relationship_level": "neutral",
+      "relationship_points": 0,
+      "emotional_state": "calm",
+      "conversation_topics": {}
+    },
+    "elder": {
+      "key": "elder",
+      "name": "Elder Theron",
+      "personality": "Wise but weakened by a mysterious curse. Speaks in riddles and ancient wisdom.",
+      "memory": [
+        "Has been cursed for weeks, growing weaker.",
+        "Knows ancient magic and village history.",
+        "Player said: gem at elder_hut",
+        "Relationship changed by 1 (friendly conversation)",
+        "Player has the gem that could break the curse.",
+        "Player said: gem at elder_hut",
+        "Relationship changed by 1 (friendly conversation)",
+        "Healed by the gem, gave magical amulet to player.",
+        "Relationship changed by 20 (breaking the curse and saving his life)",
+        "Emotional state changed to happy (curse broken, feeling grateful)",
+        "Player said: 4 at elder_hut",
+        "Relationship changed by 1 (friendly conversation)"
+      ],
+      "relationship_level": "neutral",
+      "relationship_points": 23,
+      "emotional_state": "happy",
+      "conversation_topics": {}
+    },
+    "healer": {
+      "key": "healer",
+      "name": "Mira the Healer",
+      "personality": "Kind and gentle, devoted to helping wounded adventurers. Charges fair prices for healing.",
+      "memory": [
+        "Runs the village healing tent.",
+        "Knows herbal remedies and basic healing magic.",
+        "Healed the player for free as thanks for saving Elder Theron.",
+        "Relationship changed by 3 (grateful for saving the Elder)"
+      ],
+      "relationship_level": "friendly",
+      "relationship_points": 33,
+      "emotional_state": "calm",
+      "conversation_topics": {}
+    },
+    "wanderer": {
+      "key": "wanderer",
+      "name": "Kael the Wanderer",
+      "personality": "A mysterious traveler who seems to be searching for something precious. Speaks wistfully of lost artifacts.",
+      "memory": [
+        "Has been wandering the village for days.",
+        "Searching for something important but won't say what.",
+        "Player said: trinket at village_square",
+        "Relationship changed by 1 (friendly conversation)",
+        "Player returned the ancient trinket.",
+        "Relationship changed by 25 (returning precious family heirloom)",
+        "Emotional state changed to happy (overjoyed to have family trinket back)",
+        "Player said: equip elder_sword at village_square",
+        "Relationship changed by 1 (friendly conversation)"
+      ],
+      "relationship_level": "friendly",
+      "relationship_points": 27,
+      "emotional_state": "happy",
+      "conversation_topics": {
+        "trinket": 1,
+        "equip": 1,
+        "elder_sword": 1
+      }
+    },
+    "miner": {
+      "key": "miner",
+      "name": "Old Gareth",
+      "personality": "A retired miner who worked the caves for decades. Has many stories about hidden passages and secret chambers.",
+      "memory": [
+        "Worked in the caves for 40 years before retiring.",
+        "Knows the underground passages better than anyone."
+      ],
+      "relationship_level": "neutral",
+      "relationship_points": 0,
+      "emotional_state": "calm",
+      "conversation_topics": {}
+    }
+  },
+  "flags": {
+    "cave_seeded": true,
+    "in_combat": false,
+    "in_conversation": false,
+    "ruins_seeded": true,
+    "guardian_defeated": true
+  },
+  "monster": null,
+  "save_time": "2025-08-11T18:36:50.577685"
+}
