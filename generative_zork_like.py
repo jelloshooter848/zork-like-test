@@ -33,7 +33,7 @@ from datetime import datetime
 
 try:
     import tkinter as tk
-    from tkinter import font
+    from tkinter import font, ttk
     TKINTER_AVAILABLE = True
 except ImportError:
     TKINTER_AVAILABLE = False
@@ -273,17 +273,66 @@ class MusicManager:
 # Global music manager instance
 music_manager = MusicManager()
 
-# ---------- Map Window Class ----------
-class MapWindow:
-    """Separate window for displaying ASCII world map"""
+# ---------- Game Dashboard Class ----------
+class GameDashboard:
+    """Tabbed window for displaying game information (map, inventory, quests, etc.)"""
     
     def __init__(self):
         self.root = None
         self.window = None
-        self.text_widget = None
+        self.notebook = None
+        self.tabs = {}
+        self.last_selected_tab = 0
+        self.window_width = 900
+        self.window_height = 700
         
+    def calculate_window_position(self):
+        """Calculate optimal window position for side-by-side layout"""
+        try:
+            # Create temporary root to get screen dimensions
+            if not self.root:
+                temp_root = tk.Tk()
+                temp_root.withdraw()
+                screen_width = temp_root.winfo_screenwidth()
+                screen_height = temp_root.winfo_screenheight()
+                temp_root.destroy()
+            else:
+                screen_width = self.root.winfo_screenwidth()
+                screen_height = self.root.winfo_screenheight()
+            
+            # Position dashboard on the right side, accounting for game window on left
+            game_window_width = 800  # Expected game window width
+            margin = 10
+            
+            # Calculate dashboard position (right side of screen)
+            available_width = screen_width - game_window_width - (3 * margin)
+            self.window_width = min(650, max(400, available_width))
+            
+            dashboard_x = screen_width - self.window_width - margin
+            dashboard_y = 50  # Top margin
+            
+            # Calculate height to match game window if possible
+            available_height = screen_height - dashboard_y - 100
+            if available_height < self.window_height:
+                self.window_height = max(500, available_height)
+            
+            # If screen is very wide, we can afford more width
+            if screen_width >= 1800:
+                self.window_width = min(1000, screen_width - dashboard_x - 20)
+            
+            # Ensure position is not negative
+            dashboard_x = max(50, dashboard_x)
+            dashboard_y = max(50, dashboard_y)
+            
+            return dashboard_x, dashboard_y
+            
+        except Exception as e:
+            print(f"[info] Could not calculate optimal position: {e}")
+            # Fallback to reasonable default position
+            return 950, 50
+    
     def create_window(self):
-        """Create the map window if it doesn't exist"""
+        """Create the tabbed dashboard window if it doesn't exist"""
         if not TKINTER_AVAILABLE:
             return False
         
@@ -303,54 +352,141 @@ class MapWindow:
                 self.window = None
                 
         self.window = tk.Toplevel(self.root)
-        self.window.title("🗺️ World Map - Zork Adventure")
-        self.window.geometry("800x600")
+        self.window.title("🎮 Game Dashboard - Zork Adventure")
+        
+        # Calculate optimal position for side-by-side layout
+        pos_x, pos_y = self.calculate_window_position()
+        geometry_string = f"{self.window_width}x{self.window_height}+{pos_x}+{pos_y}"
+        self.window.geometry(geometry_string)
+        
         self.window.configure(bg='black')
         
-        # Create text widget with monospace font
-        self.text_widget = tk.Text(
-            self.window,
-            bg='black',
-            fg='white',
-            font=('Courier New', 10),
-            wrap=tk.NONE,
-            state=tk.DISABLED,
-            padx=10,
-            pady=10
-        )
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(self.window)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Add scrollbars
-        v_scrollbar = tk.Scrollbar(self.window, orient=tk.VERTICAL, command=self.text_widget.yview)
-        h_scrollbar = tk.Scrollbar(self.window, orient=tk.HORIZONTAL, command=self.text_widget.xview)
-        self.text_widget.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        # Create tabs
+        self.create_tabs()
         
-        # Pack scrollbars and text widget
-        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-        self.text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Restore last selected tab
+        if self.last_selected_tab < len(self.tabs):
+            self.notebook.select(self.last_selected_tab)
         
         # Handle window close
         self.window.protocol("WM_DELETE_WINDOW", self.hide_window)
         
+        # Bind tab change event
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        
         return True
     
-    def show_map(self, map_content: str):
-        """Display map content in the window"""
-        if not self.create_window():
+    def create_tabs(self):
+        """Create all the tabs for the dashboard"""
+        tab_configs = [
+            ("🗺️ Map", "map"),
+            ("📦 Inventory", "inventory"), 
+            ("📋 Quests", "quests"),
+            ("🏆 Achievements", "achievements"),
+            ("👥 Relations", "relationships")
+        ]
+        
+        for tab_title, tab_key in tab_configs:
+            # Create frame for tab
+            frame = tk.Frame(self.notebook, bg='black')
+            
+            # Create text widget with scrollbars
+            text_widget = tk.Text(
+                frame,
+                bg='black',
+                fg='white',
+                font=('Courier New', 10),
+                wrap=tk.NONE,
+                state=tk.DISABLED,
+                padx=10,
+                pady=10
+            )
+            
+            # Add scrollbars
+            v_scrollbar = tk.Scrollbar(frame, orient=tk.VERTICAL, command=text_widget.yview)
+            h_scrollbar = tk.Scrollbar(frame, orient=tk.HORIZONTAL, command=text_widget.xview)
+            text_widget.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+            
+            # Pack scrollbars and text widget
+            v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+            text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            
+            # Store tab info
+            self.tabs[tab_key] = {
+                'frame': frame,
+                'text_widget': text_widget,
+                'title': tab_title
+            }
+            
+            # Add tab to notebook
+            self.notebook.add(frame, text=tab_title)
+    
+    def on_tab_changed(self, event):
+        """Handle tab change events"""
+        self.last_selected_tab = self.notebook.index(self.notebook.select())
+    
+    def update_tab_content(self, tab_key: str, content: str):
+        """Update content of a specific tab"""
+        if tab_key not in self.tabs:
             return False
             
-        # Enable editing, clear content, insert new content
-        self.text_widget.configure(state=tk.NORMAL)
-        self.text_widget.delete(1.0, tk.END)
+        text_widget = self.tabs[tab_key]['text_widget']
         
-        # Insert content directly (it should already be clean of ANSI codes)
-        self.text_widget.insert(1.0, map_content)
+        # Enable editing, clear content, insert new content
+        text_widget.configure(state=tk.NORMAL)
+        text_widget.delete(1.0, tk.END)
+        
+        # Strip ANSI codes and insert content
+        clean_content = self._strip_ansi_codes(content)
+        text_widget.insert(1.0, clean_content)
         
         # Disable editing and scroll to top
-        self.text_widget.configure(state=tk.DISABLED)
-        self.text_widget.see(1.0)
+        text_widget.configure(state=tk.DISABLED)
+        text_widget.see(1.0)
         
         return True
+    
+    def show_dashboard(self, w: "World"):
+        """Show dashboard and update all tab content"""
+        if not self.create_window():
+            return False
+        
+        # Force window update to ensure tabs are fully created
+        if self.window:
+            self.window.update()
+        
+        # Schedule initial tab population after a brief delay
+        def delayed_update():
+            self.update_all_tabs(w)
+        
+        if self.window:
+            self.window.after(100, delayed_update)  # 100ms delay
+        
+        return True
+    
+    def update_all_tabs(self, w: "World"):
+        """Update content for all tabs"""
+        if not self.is_visible():
+            return
+        
+        # Ensure tabs are created
+        if not self.tabs:
+            return
+            
+        # Update each tab with current game data
+        try:
+            self.update_tab_content("map", get_world_map(w, no_colors=True))
+            self.update_tab_content("inventory", show_enhanced_inventory(w))
+            self.update_tab_content("quests", quests(w))
+            self.update_tab_content("achievements", show_achievements_list(w))
+            self.update_tab_content("relationships", show_relationships(w))
+        except Exception as e:
+            print(f"[debug] Tab update error: {e}")
     
     def _strip_ansi_codes(self, text: str) -> str:
         """Remove ANSI color codes from text"""
@@ -359,7 +495,7 @@ class MapWindow:
         return ansi_escape.sub('', text)
     
     def hide_window(self):
-        """Hide the map window"""
+        """Hide the dashboard window"""
         if self.window:
             self.window.withdraw()
     
@@ -371,51 +507,309 @@ class MapWindow:
             return self.window.winfo_viewable()
         except tk.TclError:
             return False
-    
-    def update_map(self, w: "World"):
-        """Update the map content if window is open and visible"""
-        if self.is_visible():
-            map_content = get_world_map(w, no_colors=True)
-            self.show_map(map_content)
 
-# Create global map window instance
-map_window = MapWindow()
+# Create global dashboard instance
+game_dashboard = GameDashboard()
+
+# Create global game window instance
+game_window = None
+
+# Helper functions for dual interface support
+def game_print(text: str = ""):
+    """Print text to game window or terminal"""
+    global game_window
+    if game_window and game_window.window:
+        game_window.print_to_game(text)
+    else:
+        print(text)
+
+def game_input(prompt: str = "> ") -> str:
+    """Get input from game window or terminal"""
+    global game_window
+    if game_window and game_window.window:
+        return game_window.get_input(prompt)
+    else:
+        return input(prompt)
+
+# ---------- Game Window Class ----------
+class GameWindow:
+    """Main game window for text-based interface"""
+    
+    def __init__(self):
+        self.root = None
+        self.window = None
+        self.text_area = None
+        self.input_var = None
+        self.input_field = None
+        self.command_history = []
+        self.history_index = -1
+        self.waiting_for_input = False
+        self.input_result = None
+        self.window_width = 800
+        self.window_height = 700
+        
+    def calculate_game_window_position(self):
+        """Calculate position for game window (left side)"""
+        try:
+            if not self.root:
+                temp_root = tk.Tk()
+                temp_root.withdraw()
+                screen_width = temp_root.winfo_screenwidth()
+                screen_height = temp_root.winfo_screenheight()
+                temp_root.destroy()
+            else:
+                screen_width = self.root.winfo_screenwidth()
+                screen_height = self.root.winfo_screenheight()
+            
+            # Position game window on left side
+            game_x = 50  # Left margin
+            game_y = 50  # Top margin
+            
+            # Calculate optimal width (about 45% of screen width)
+            self.window_width = min(800, int(screen_width * 0.45))
+            
+            # Calculate height to match dashboard
+            available_height = screen_height - game_y - 100
+            self.window_height = min(700, available_height)
+            
+            return game_x, game_y
+            
+        except Exception as e:
+            print(f"[info] Could not calculate game window position: {e}")
+            return 50, 50
+    
+    def create_window(self):
+        """Create the main game window"""
+        if not TKINTER_AVAILABLE:
+            return False
+            
+        # Create root window if it doesn't exist
+        if self.root is None:
+            self.root = tk.Tk()
+            self.root.title("🎮 Zork Adventure - Main Game")
+            
+            # Calculate position
+            pos_x, pos_y = self.calculate_game_window_position()
+            geometry_string = f"{self.window_width}x{self.window_height}+{pos_x}+{pos_y}"
+            self.root.geometry(geometry_string)
+            
+            self.root.configure(bg='black')
+            self.window = self.root
+        else:
+            return True
+        
+        # Create main frame
+        main_frame = tk.Frame(self.window, bg='black')
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Create text area for game output
+        self.text_area = tk.Text(
+            main_frame,
+            bg='black',
+            fg='green',  # Classic terminal green
+            font=('Courier New', 11),
+            wrap=tk.WORD,
+            state=tk.DISABLED,
+            relief=tk.FLAT,
+            borderwidth=0
+        )
+        
+        # Create scrollbar for text area
+        scrollbar = tk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.text_area.yview)
+        self.text_area.configure(yscrollcommand=scrollbar.set)
+        
+        # Pack text area and scrollbar
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.text_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Create input frame
+        input_frame = tk.Frame(self.window, bg='black')
+        input_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        # Create prompt label
+        prompt_label = tk.Label(
+            input_frame, 
+            text="> ", 
+            bg='black', 
+            fg='green',
+            font=('Courier New', 11)
+        )
+        prompt_label.pack(side=tk.LEFT)
+        
+        # Create input field
+        self.input_var = tk.StringVar()
+        self.input_field = tk.Entry(
+            input_frame,
+            textvariable=self.input_var,
+            bg='black',
+            fg='green',
+            font=('Courier New', 11),
+            insertbackground='green',
+            relief=tk.FLAT,
+            borderwidth=0
+        )
+        self.input_field.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Bind events
+        self.input_field.bind('<Return>', self.on_enter)
+        self.input_field.bind('<Up>', self.on_up_arrow)
+        self.input_field.bind('<Down>', self.on_down_arrow)
+        
+        # Focus on input field
+        self.input_field.focus()
+        
+        # Handle window close
+        self.window.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        return True
+    
+    def print_to_game(self, text: str):
+        """Print text to the game window"""
+        if not self.text_area:
+            return
+            
+        self.text_area.configure(state=tk.NORMAL)
+        self.text_area.insert(tk.END, text + '\n')
+        self.text_area.configure(state=tk.DISABLED)
+        self.text_area.see(tk.END)  # Auto-scroll to bottom
+        
+        # Process pending events to update display
+        if self.root:
+            self.root.update_idletasks()
+    
+    def get_input(self, prompt: str = "> ") -> str:
+        """Get input from the user"""
+        if not self.window:
+            return input(prompt)  # Fallback to terminal input
+        
+        # Show prompt if needed
+        if prompt and prompt != "> ":
+            self.print_to_game(prompt.rstrip())
+        
+        # Wait for user input
+        self.waiting_for_input = True
+        self.input_result = None
+        
+        # Focus input field
+        self.input_field.focus()
+        
+        # Wait for input
+        while self.waiting_for_input and self.window:
+            try:
+                self.root.update()
+            except tk.TclError:
+                # Window was closed
+                return "quit"
+        
+        return self.input_result or "quit"
+    
+    def on_enter(self, event):
+        """Handle Enter key press"""
+        command = self.input_var.get().strip()
+        
+        if command:
+            # Add to history
+            self.command_history.append(command)
+            self.history_index = len(self.command_history)
+            
+            # Display command in text area
+            self.print_to_game(f"> {command}")
+            
+            # Clear input field
+            self.input_var.set("")
+            
+            # Set result and stop waiting
+            self.input_result = command
+            self.waiting_for_input = False
+    
+    def on_up_arrow(self, event):
+        """Handle up arrow for command history"""
+        if self.command_history and self.history_index > 0:
+            self.history_index -= 1
+            self.input_var.set(self.command_history[self.history_index])
+    
+    def on_down_arrow(self, event):
+        """Handle down arrow for command history"""
+        if self.command_history:
+            if self.history_index < len(self.command_history) - 1:
+                self.history_index += 1
+                self.input_var.set(self.command_history[self.history_index])
+            else:
+                self.history_index = len(self.command_history)
+                self.input_var.set("")
+    
+    def on_close(self):
+        """Handle window close event"""
+        self.waiting_for_input = False
+        self.input_result = "quit"
+        if self.root:
+            self.root.quit()
+
+# Create global game window instance
+game_window = GameWindow()
 
 # ---------- Color utilities ----------
 def colorize_npc(text: str) -> str:
     """Color NPC names and dialogue"""
+    global game_window
+    if game_window and game_window.window:
+        return text  # No colors for tkinter
     return f"{Fore.CYAN}{Style.BRIGHT}{text}{Style.RESET_ALL}"
 
 def colorize_item(text: str) -> str:
     """Color item names"""
+    global game_window
+    if game_window and game_window.window:
+        return text  # No colors for tkinter
     return f"{Fore.YELLOW}{Style.BRIGHT}{text}{Style.RESET_ALL}"
 
 def colorize_combat(text: str) -> str:
     """Color combat text"""
+    global game_window
+    if game_window and game_window.window:
+        return text  # No colors for tkinter
     return f"{Fore.RED}{Style.BRIGHT}{text}{Style.RESET_ALL}"
 
 def colorize_quest(text: str) -> str:
     """Color quest-related text"""
+    global game_window
+    if game_window and game_window.window:
+        return text  # No colors for tkinter
     return f"{Fore.GREEN}{Style.BRIGHT}{text}{Style.RESET_ALL}"
 
 def colorize_location(text: str) -> str:
     """Color location names"""
+    global game_window
+    if game_window and game_window.window:
+        return text  # No colors for tkinter
     return f"{Fore.BLUE}{Style.BRIGHT}{text}{Style.RESET_ALL}"
 
 def colorize_command(text: str) -> str:
     """Color command options"""
+    global game_window
+    if game_window and game_window.window:
+        return text  # No colors for tkinter
     return f"{Fore.MAGENTA}{text}{Style.RESET_ALL}"
 
 def colorize_success(text: str) -> str:
     """Color success messages"""
+    global game_window
+    if game_window and game_window.window:
+        return text  # No colors for tkinter
     return f"{Fore.GREEN}{text}{Style.RESET_ALL}"
 
 def colorize_warning(text: str) -> str:
     """Color warning messages"""
+    global game_window
+    if game_window and game_window.window:
+        return text  # No colors for tkinter
     return f"{Fore.YELLOW}{text}{Style.RESET_ALL}"
 
 def colorize_error(text: str) -> str:
     """Color error messages"""
+    global game_window
+    if game_window and game_window.window:
+        return text  # No colors for tkinter
     return f"{Fore.RED}{text}{Style.RESET_ALL}"
 
 # ---------- ASCII Art ----------
@@ -2256,9 +2650,9 @@ def move_player(w: World, dest_key: str) -> str:
     if achievement_notifications:
         result += achievement_notifications
     
-    # Update map window if it's open
+    # Update dashboard if it's open
     if TKINTER_AVAILABLE:
-        map_window.update_map(w)
+        game_dashboard.update_all_tabs(w)
     
     return result
 
@@ -2837,9 +3231,9 @@ def do_flee(w: World) -> str:
         w.monster = None
         w.player.location = "forest_path"
         
-        # Update map window if it's open
+        # Update dashboard if it's open
         if TKINTER_AVAILABLE:
-            map_window.update_map(w)
+            game_dashboard.update_all_tabs(w)
         
         return "You sprint for the exit and escape to the forest path!\n" + describe_location(w)
     # fail: take a hit
@@ -3066,8 +3460,8 @@ HELP = (
 "  heal (get healing at healer's tent)\n"
 "  quests\n"
 "  map (show explored areas)\n"
-"  worldmap (open world map in separate window)\n"
-"  hidemap/closemap (hide map window)\n"
+"  worldmap/dashboard (open game dashboard with tabs)\n"
+"  hidemap/closemap (hide dashboard window)\n"
 "  achievements (show progress)\n"
 "  relationships (show NPC status)\n"
 "  save [name] / load [name]\n"
@@ -3118,9 +3512,9 @@ def parse_and_exec(w: World, raw: str) -> str:
             if achievement_notifications:
                 result += achievement_notifications
             
-            # Update map window if it's open
+            # Update dashboard if it's open
             if TKINTER_AVAILABLE:
-                map_window.update_map(w)
+                game_dashboard.update_all_tabs(w)
             
             return result + "\n\nYou squeeze through a gap behind the loose rocks and discover a hidden chamber!"
         
@@ -3251,24 +3645,23 @@ def parse_and_exec(w: World, raw: str) -> str:
     if low in ["map", "m"]:
         return get_mini_map(w)
     
-    # world map - comprehensive view in separate window
-    if low in ["worldmap", "world", "fullmap"]:
+    # world map - comprehensive dashboard in separate window
+    if low in ["worldmap", "world", "fullmap", "dashboard"]:
         if not TKINTER_AVAILABLE:
-            return colorize_warning("⚠️ Cannot open map window: tkinter not available. Use 'map' for text view.")
+            return colorize_warning("⚠️ Cannot open dashboard: tkinter not available. Use 'map' for text view.")
         
-        map_content = get_world_map(w, no_colors=True)
-        if map_window.show_map(map_content):
-            return colorize_success("🗺️ World map opened in separate window!")
+        if game_dashboard.show_dashboard(w):
+            return colorize_success("🎮 Game dashboard opened in separate window!")
         else:
-            return colorize_error("❌ Failed to open map window. Use 'map' for text view.")
+            return colorize_error("❌ Failed to open dashboard. Use 'map' for text view.")
     
-    # map window management
-    if low in ["hidemap", "closemap"]:
-        if TKINTER_AVAILABLE and map_window.is_visible():
-            map_window.hide_window()
-            return colorize_success("🗺️ Map window hidden.")
+    # dashboard window management
+    if low in ["hidemap", "closemap", "hidedashboard", "closedashboard"]:
+        if TKINTER_AVAILABLE and game_dashboard.is_visible():
+            game_dashboard.hide_window()
+            return colorize_success("🎮 Dashboard window hidden.")
         else:
-            return colorize_warning("⚠️ No map window is currently open.")
+            return colorize_warning("⚠️ No dashboard window is currently open.")
     
     # achievements  
     if low in ["achievements", "ach"]:
@@ -3290,25 +3683,76 @@ def parse_and_exec(w: World, raw: str) -> str:
 
 # ---------- REPL ----------
 def repl():
+    global game_window
     w = build_world()
-    # one-time note if key missing (we'll fall back to stub NPC lines)
-    if not load_anthropic_key():
-        print("[warn] No Anthropic API key found (using offline stub replies).")
-        print("       Set ANTHROPIC_API_KEY or create ./secrets/anthropic.key\n")
+    
+    # Initialize dual window interface if tkinter is available
+    use_tkinter_interface = False
+    if TKINTER_AVAILABLE:
+        try:
+            # Initialize game window
+            game_window = GameWindow()
+            if game_window.create_window():
+                use_tkinter_interface = True
+                
+                # Auto-launch dashboard with optimal positioning
+                game_dashboard.show_dashboard(w)
+                
+                # Print initial game text to game window
+                game_window.print_to_game("=" * 60)
+                game_window.print_to_game("WELCOME TO THE VILLAGE OF THERON")
+                game_window.print_to_game("=" * 60)
+                game_window.print_to_game("You are a wandering adventurer who has arrived in this small village.")
+                game_window.print_to_game("The locals speak of ancient treasures and growing dangers.")
+                game_window.print_to_game("Elder Theron lies cursed and weak, while the blacksmith seeks worthy")
+                game_window.print_to_game("heroes. An ominous sealed tower looms over the village square.")
+                game_window.print_to_game("")
+                game_window.print_to_game("Your journey begins now. Seek work, prove yourself, and uncover")
+                game_window.print_to_game("the mysteries that await. Talk to the villagers to learn more.")
+                game_window.print_to_game("")
+                game_window.print_to_game("Type 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
+                game_window.print_to_game("=" * 60)
+                game_window.print_to_game("")
+                game_window.print_to_game(describe_location(w))
+                
+            else:
+                raise Exception("Failed to create game window")
+        except Exception as e:
+            print(f"[info] Tkinter interface failed: {e}")
+            print("[info] Falling back to terminal interface.")
+            use_tkinter_interface = False
+            game_window = None
+    
+    # Fallback to terminal interface if tkinter failed
+    if not use_tkinter_interface:
+        # one-time note if key missing (we'll fall back to stub NPC lines)
+        if not load_anthropic_key():
+            print("[warn] No Anthropic API key found (using offline stub replies).")
+            print("       Set ANTHROPIC_API_KEY or create ./secrets/anthropic.key\n")
 
-    print("=" * 60)
-    print("WELCOME TO THE VILLAGE OF THERON")
-    print("=" * 60)
-    print("You are a wandering adventurer who has arrived in this small village.")
-    print("The locals speak of ancient treasures and growing dangers.")
-    print("Elder Theron lies cursed and weak, while the blacksmith seeks worthy")
-    print("heroes. An ominous sealed tower looms over the village square.")
-    print("\nYour journey begins now. Seek work, prove yourself, and uncover")
-    print("the mysteries that await. Talk to the villagers to learn more.")
-    print("\nType 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
-    print("=" * 60)
-    print()
-    print(describe_location(w))
+        print("=" * 60)
+        print("WELCOME TO THE VILLAGE OF THERON")
+        print("=" * 60)
+        print("You are a wandering adventurer who has arrived in this small village.")
+        print("The locals speak of ancient treasures and growing dangers.")
+        print("Elder Theron lies cursed and weak, while the blacksmith seeks worthy")
+        print("heroes. An ominous sealed tower looms over the village square.")
+        print("\nYour journey begins now. Seek work, prove yourself, and uncover")
+        print("the mysteries that await. Talk to the villagers to learn more.")
+        print("\nType 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
+        print("=" * 60)
+        print()
+        game_print(describe_location(w))
+        
+        # Try to auto-launch dashboard if tkinter is available
+        if TKINTER_AVAILABLE:
+            try:
+                game_dashboard.show_dashboard(w)
+                print(colorize_success("🎮 Game dashboard automatically opened!"))
+            except Exception as e:
+                print(f"[info] Dashboard auto-launch failed: {e}")
+                print("[info] Use 'worldmap' or 'dashboard' command to open manually.")
+    
     while True:
         try:
             # Check for game completion
@@ -3331,7 +3775,17 @@ def repl():
                     print("\nType 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
                     print("=" * 60)
                     print()
-                    print(describe_location(w))
+                    game_print(describe_location(w))
+                    
+                    # Auto-launch dashboard on restart
+                    if TKINTER_AVAILABLE:
+                        try:
+                            game_dashboard.show_dashboard(w)
+                            print(colorize_success("🎮 Game dashboard automatically opened!"))
+                        except Exception as e:
+                            print(f"[info] Dashboard auto-launch failed: {e}")
+                            print("[info] Use 'worldmap' or 'dashboard' command to open manually.")
+                    
                     continue
                 elif completion_result.startswith("__LOAD__"):
                     # Load specified save
@@ -3341,17 +3795,17 @@ def repl():
                         if loaded_world:
                             w = loaded_world
                             print(f"{colorize_success(f'Game loaded from {save_name}!')}")
-                            print(describe_location(w))
+                            game_print(describe_location(w))
                             continue
                         else:
                             print(colorize_error(f"Failed to load {save_name}. Starting new game..."))
                             w = build_world()
-                            print(describe_location(w))
+                            game_print(describe_location(w))
                             continue
                     except Exception as e:
                         print(colorize_error(f"Error loading save: {e}. Starting new game..."))
                         w = build_world()
-                        print(describe_location(w))
+                        game_print(describe_location(w))
                         continue
 
             # Check for game over
@@ -3374,7 +3828,7 @@ def repl():
                     print("\nType 'help' for commands, 'quests' to track progress, or 'quit' to exit.")
                     print("=" * 60)
                     print()
-                    print(describe_location(w))
+                    game_print(describe_location(w))
                     continue
                 elif game_over_result.startswith("__LOAD__"):
                     # Load specified save
@@ -3384,17 +3838,17 @@ def repl():
                         if loaded_world:
                             w = loaded_world
                             print(f"{colorize_success(f'Game loaded from {save_name}!')}")
-                            print(describe_location(w))
+                            game_print(describe_location(w))
                             continue
                         else:
                             print(colorize_error(f"Failed to load {save_name}. Starting new game..."))
                             w = build_world()
-                            print(describe_location(w))
+                            game_print(describe_location(w))
                             continue
                     except Exception as e:
                         print(colorize_error(f"Error loading save: {e}. Starting new game..."))
                         w = build_world()
-                        print(describe_location(w))
+                        game_print(describe_location(w))
                         continue
             
             # Check if in conversation mode
@@ -3404,13 +3858,15 @@ def repl():
                 continue
             
             # Display context menu
-            print("\n" + display_context_menu(w))
-            raw = input("> ")
+            game_print("\n" + display_context_menu(w))
+            raw = game_input("> ")
         except EOFError:
-            print("\nGoodbye."); break
+            game_print("\nGoodbye.")
+            break
         
         if raw.strip().lower() in ("help","h","?"):
-            print(HELP); continue
+            game_print(HELP)
+            continue
         
         # Check if input is a menu selection
         menu_command = parse_menu_selection(w, raw)
@@ -3424,15 +3880,15 @@ def repl():
         
         # Handle special return values
         if result == "__QUIT__":
-            print("Goodbye."); break
+            game_print("Goodbye."); break
         elif isinstance(result, tuple) and len(result) == 3 and result[0] == "__LOAD__":
             # Load command successful
             _, w, message = result
-            print(message)
-            print(describe_location(w))
+            game_print(message)
+            game_print(describe_location(w))
         else:
             # Normal command output
-            print(result)
+            game_print(result)
 
 if __name__ == "__main__":
     repl()
